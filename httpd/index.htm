@@ -52,7 +52,10 @@
                 <small>Last update: <span data-bind="text: last_update"></span></small>
              </div>
             <div class="col-md-1">
-                <i data-bind="css: { 'animate-spin': updating() != false }" class="icon-spin5 color-gray"></i>
+                <i data-bind="css: { 'animate-spin': updating,
+                                     'icon-spin5': update_type() == 'sse',
+                                     'icon-spin3': update_type() == 'poll' }"
+                   class="color-gray"></i>
             </div>
         </div>
     </div>
@@ -66,9 +69,13 @@
         this.last_update = ko.observable("Never ;-(");
 
         this.updating = ko.observable(false);
-
-        self.sse_support = typeof(EventSource) !== "undefined";
+        self.sse_support = ko.observable(false); //ko.observable(typeof(EventSource) !== "undefined");
         self.event_source = null;
+
+        self.update_type = ko.computed(function(){
+            return self.sse_support() ? 'sse' : 'poll';
+        });
+
 
         self.load_data = function() {
             self.updating(true);
@@ -86,7 +93,7 @@
 
         self.install_timer = function() {
 
-            if (self.sse_support) {
+            if (self.sse_support()) {
                 // we use see, no need for polling!
                 return;
             }
@@ -108,12 +115,12 @@
         self.initialize = function() {
             self.load_data();
 
-            if (self.sse_support) {
+            if (self.sse_support()) {
 
                 self.event_source = new EventSource("subscribe");
                 self.event_source.onmessage = function(e) {
                     if (!self.updating()) {
-                        self.updating(true);
+                        self.updating('sse');
                     }
                     var data = JSON.parse(e.data);
                     self.update_from_data(data);
