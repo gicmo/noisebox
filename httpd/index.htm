@@ -1,0 +1,93 @@
+<meta charset="UTF-8">
+<html>
+<head>
+    <!--
+                          _                _
+                         (_)              | |
+          _ __     ___    _   ___    ___  | |__     ___   __  __
+         | '_ \   / _ \  | | / __|  / _ \ | '_ \   / _ \  \ \/ /
+         | | | | | (_) | | | \__ \ |  __/ | |_) | | (_) |  >  <
+         |_| |_|  \___/  |_| |___/  \___| |_.__/   \___/  /_/\_\
+
+         Copyright (c) 2014 Christian Kellner <kellner@bio.lmu.de>
+    -->
+
+
+    <title>Noisebox</title>
+
+    <script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/jquery/1.11.0/jquery.js"></script>
+    <script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/jqueryui/1.10.4/jquery-ui.min.js"></script>
+    <script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/knockout/3.0.0/knockout-debug.js"></script>
+    <script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.1.1/js/bootstrap.js"></script>
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.2.0/css/bootstrap.min.css">
+    <link rel="stylesheet" href="css/fontello.css">
+    <link rel="stylesheet" href="css/animation.css"><!--[if IE 7]><link rel="stylesheet" href="css/fontello-ie7.css"><![endif]-->
+    <link rel="stylesheet" href="css/jt-narrow.css">
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>
+            noisebox
+            <small>monitor</small>
+        </h1>
+    </div>
+    <div class="row">
+        <div class="col-md-offset-1 col-md-5 text-center">
+            <h1>
+                <i class="icon-temperatire color-gray"></i>
+                <span data-bind="text: temperature" ></span><small> &deg;C</small>
+            </h1>
+        </div>
+        <div class="col-md-5 text-center">
+            <h1>
+                <i class="icon-water color-gray"></i>
+                <span data-bind="text: humidity" ></span> <small> %</small>
+            </h1>
+        </div>
+    </div>
+    <div class="footer"><small>Last update: <span data-bind="text: last_update"></span></small></div>
+</div>
+<script type="text/javascript">
+
+    function AppViewModel() {
+        var self = this;
+        this.temperature = ko.observable("NA");
+        this.humidity = ko.observable("NA");
+        this.last_update = ko.observable("Never ;-(");
+
+        self.load_data = function() {
+            var jqxhr = $.getJSON("data", function(data) {
+                self.temperature(data.temperature.toPrecision(4));
+
+                var now = new Date();
+                self.last_update(now.toDateString() + " @ " + now.toTimeString());
+                self.install_timer();
+            });
+
+            jqxhr.fail(function(jqxhr, textStatus, error) {
+                var err = textStatus + ", " + error;
+                self.last_update("Request is failing! [" + err + "]");
+                self.install_timer();
+            });
+        };
+
+        self.install_timer = function() {
+            setTimeout(function(){
+                self.load_data();
+            }, 2000);
+        };
+
+        self.initialize = function() {
+            self.load_data();
+        };
+
+    }
+
+    var view_model = new AppViewModel();
+    view_model.initialize();
+    ko.applyBindings(view_model);
+</script>
+
+</body>
+</html>

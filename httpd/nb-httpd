@@ -1,0 +1,121 @@
+#!/usr/bin/env python2
+# -*- coding: utf-8 -*-
+from __future__ import print_function
+
+import zmq
+import json
+import threading
+
+from SocketServer import ThreadingMixIn
+from BaseHTTPServer import HTTPServer
+from SimpleHTTPServer import SimpleHTTPRequestHandler
+import signal
+
+
+class RequestHandler(SimpleHTTPRequestHandler):
+
+    def serve_file(self):
+        SimpleHTTPRequestHandler.do_GET(self)
+
+    def data(self):
+        ipc = self.server.zmq_ctx.socket(zmq.REQ)
+        ipc.connect("inproc://data")
+        ipc.send(b"GetData")
+        temperature = ipc.recv_json()
+
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        response = json.dumps(temperature, sort_keys=True, indent=4, separators=(', ', ': '))
+        self.send_header('Content-length', len(response))
+        self.end_headers()
+        self.wfile.write(str(response))
+
+    def do_GET(self):
+        if self.path == '/' or self.path == 'index.htm':
+            self.serve_file()
+        elif self.path.startswith('/css/') or self.path.startswith('/font/'):
+            self.serve_file()
+        elif self.path == '/data':
+            self.data()
+        else:
+            self.send_response(404)
+            self.send_header('Content-type', 'text/plain')
+            response = "Not found :("
+            self.send_header('Content-length', len(response))
+            self.end_headers()
+            self.wfile.write(response)
+
+
+class ThreadingServer(ThreadingMixIn, HTTPServer):
+    def __init__(self, server_address):
+        HTTPServer.__init__(self, server_address, RequestHandler)
+        context = zmq.Context()
+        self.zmq_ctx = context
+
+        hangman = context.socket(zmq.PUB)
+        hangman.bind("inproc://hangman")
+
+        mio_thread = threading.Thread(target=self.update_bg_thread)
+        mio_thread.start()
+        self.hangman = hangman
+        self.mio_thread = mio_thread
+
+    def stop(self):
+        print('Stopping mio thread')
+        threading.Thread(target=self.shutdown).start()
+        self.hangman.send(b"Stop")
+        self.mio_thread.join()
+
+    def load_initial_data(self):
+        socket = self.zmq_ctx.socket(zmq.REQ)
+        socket.connect("tcp://localhost:5557")
+        socket.send(b"GetSensorData")
+        init_data = socket.recv_json()
+        return init_data
+
+    def update_bg_thread(self):
+        zmq_ctx = self.zmq_ctx
+        temperature = self.load_initial_data()
+        print(temperature)
+        updates = zmq_ctx.socket(zmq.SUB)
+        updates.connect("tcp://localhost:5556")
+        updates.setsockopt_string(zmq.SUBSCRIBE, u'')
+
+        service = zmq_ctx.socket(zmq.REP)
+        service.bind("inproc://data")
+
+        hm = zmq_ctx.socket(zmq.SUB)
+        hm.connect("inproc://hangman")
+        hm.setsockopt_string(zmq.SUBSCRIBE, u'')
+
+        poller = zmq.Poller()
+        poller.register(updates, zmq.POLLIN)
+        poller.register(service, zmq.POLLIN)
+        poller.register(hm, zmq.POLLIN)
+
+        while True:
+            try:
+                ready = dict(poller.poll())
+            except KeyboardInterrupt:
+                break
+
+            if hm in ready:
+                break  # This is our stop signal
+
+            if updates in ready:
+                temperature = updates.recv_json()
+
+            if service in ready:
+                req = service.recv_string()
+                service.send_json(temperature)
+
+if __name__ == "__main__":
+    print("Noisebox monitor - HTTPd")
+    print("Starting server")
+
+    daemon = ThreadingServer(('', 8000))
+    sig_handler = lambda s, a: daemon.stop()
+    signal.signal(signal.SIGINT, sig_handler)
+    signal.signal(signal.SIGTERM, sig_handler)
+    daemon.serve_forever()
+
