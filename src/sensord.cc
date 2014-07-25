@@ -22,6 +22,7 @@
 #include "zmq.hpp"
 #include <json/json.h>
 
+
 namespace i2c {
 
 class i2c_error : std::runtime_error {
@@ -123,17 +124,34 @@ public:
 } //namespace i2c
 
 namespace util {
-    static zmq::message_t message_from_json(const Json::Value &js) {
-        Json::StyledWriter writer;
-        std::string out = writer.write(js);
-        zmq::message_t msg(out.size());
 
-        char *msg_data = static_cast<char *>(msg.data());
-        std::copy(out.cbegin(), out.cend(), msg_data);
+static zmq::message_t message_from_json(const Json::Value &js) {
+    Json::StyledWriter writer;
+    std::string out = writer.write(js);
+    zmq::message_t msg(out.size());
 
-        return msg;
+    char *msg_data = static_cast<char *>(msg.data());
+    std::copy(out.cbegin(), out.cend(), msg_data);
+
+    return msg;
+}
+
+static inline void forward_msg(zmq::message_t &msg,
+                               zmq::socket_t  &source,
+                               zmq::socket_t  &sink) {
+    while (1) {
+        source.recv(&msg, 0);
+        const bool more = msg.more();
+        sink.send(msg, more ? ZMQ_SNDMORE : 0);
+        msg.rebuild(); // reset the message
+
+        if (!more) {
+            break;
+        }
     }
 }
+
+} //namespace util
 
 static void
 mcp_loop(zmq::context_t &zmq_ctx, i2c::mcp9808 &mcp)
@@ -159,6 +177,7 @@ mcp_loop(zmq::context_t &zmq_ctx, i2c::mcp9808 &mcp)
 
 }
 
+
 int main(int argc, char **argv)
 {
     printf("Temperature from MCP9808\n");
@@ -174,7 +193,26 @@ int main(int argc, char **argv)
 
     std::thread mcp_thread(mcp_loop, std::ref(context), std::ref(dev));
 
-    zmq::proxy(emitter, collector, nullptr);
+    //now the main runloop
+    zmq_pollitem_t items[] = {
+            {static_cast<void *>(collector), 0, ZMQ_POLLIN, 0 },
+            {static_cast<void *>(emitter), 0, ZMQ_POLLIN, 0 }
+    };
+
+
+    while (1) {
+        zmq::message_t msg;
+
+        zmq_poll(items, 2, -1);
+
+        if (items[0].revents & ZMQ_POLLIN) {
+            util::forward_msg(msg, collector, emitter);
+        }
+
+        if (items[1].revents & ZMQ_POLLIN) {
+            util::forward_msg(msg, emitter, collector);
+        }
+    }
 
     //TODO: need a way to stop the thread, shared bool var or so
     mcp_thread.join();
