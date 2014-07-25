@@ -23,5 +23,5 @@ include_directories(${JSONCPP_INCLUDE_DIR} ${ZMQ_INCLUDE_DIR})
 file(GLOB_RECURSE noisebox_SOURCES src/*.cc)
 file(GLOB_RECURSE noisebox_INCLUDES src/*.h)
 
-add_executable(nb-monitord ${noisebox_SOURCES})
-target_link_libraries(nb-monitord ${ZMQ_LIBRARY} ${JSONCPP_LIBRARY})
+add_executable(nb-sensord ${noisebox_SOURCES})
+target_link_libraries(nb-sensord ${ZMQ_LIBRARY} ${JSONCPP_LIBRARY})
