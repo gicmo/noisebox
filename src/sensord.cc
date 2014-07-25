@@ -210,7 +210,76 @@ mcp_loop(zmq::context_t &zmq_ctx, i2c::mcp9808 &mcp)
 
         publisher.send(msg);
     }
+}
 
+static void
+datastore_loop(zmq::context_t &zmq_ctx)
+{
+    zmq::socket_t sensor_updates(zmq_ctx, ZMQ_SUB);
+    sensor_updates.connect("tcp://localhost:5556");
+    sensor_updates.setsockopt(ZMQ_SUBSCRIBE, "", 0);
+
+    zmq::socket_t hangman(zmq_ctx, ZMQ_SUB);
+    hangman.connect("inproc://hangman");
+    hangman.setsockopt(ZMQ_SUBSCRIBE, "", 0);
+
+    zmq::socket_t service(zmq_ctx, ZMQ_REP);
+    service.bind("tcp://*:5557");
+
+    zmq_pollitem_t items[] = {
+            {static_cast<void *>(hangman), 0, ZMQ_POLLIN, 0 },
+            {static_cast<void *>(sensor_updates), 0, ZMQ_POLLIN, 0 },
+            {static_cast<void *>(service), 0, ZMQ_POLLIN, 0 }
+    };
+
+    float temp = 0.0;
+
+    while (1) {
+
+        bool ready = util::poll(items);
+        assert(ready);
+
+        if (items[0].revents & ZMQ_POLLIN) {
+
+            assert(items[0].revents & ZMQ_POLLIN);
+            zmq::message_t msg;
+            hangman.recv(&msg);
+
+            //currently the only message we can get
+            //is to stop
+            return;
+        }
+
+        if (items[1].revents & ZMQ_POLLIN) {
+            // Sensor update
+            zmq::message_t update;
+            sensor_updates.recv(&update);
+
+            Json::Value js;
+            Json::Reader reader;
+
+            std::string input(static_cast<char*>(update.data()));
+
+            if (!reader.parse(input, js)) {
+                std::cerr << "Could not parse sensor update" << std::endl;
+            } else {
+                temp = js["temperature"].asFloat();
+                std::cout << "T:" << temp << std::endl;
+            }
+        }
+
+        if (items[2].revents & ZMQ_POLLIN) {
+            zmq::message_t request;
+            service.recv (&request);
+
+            Json::Value js;
+            js["temperature"] = temp;
+            zmq::message_t msg = util::message_from_json(js);
+            service.send(msg);
+
+        }
+
+    }
 }
 
 // signal handling
@@ -254,6 +323,7 @@ int main(int argc, char **argv)
     init_signals();
 
     std::thread mcp_thread(mcp_loop, std::ref(context), std::ref(dev));
+    std::thread dst_thread(datastore_loop, std::ref(context));
 
     //now the main runloop
     zmq_pollitem_t items[] = {
@@ -280,6 +350,7 @@ int main(int argc, char **argv)
     hangman.send(stop_msg);
 
     mcp_thread.join();
+    dst_thread.join();
 
     return 0;
 }
