@@ -48,6 +48,8 @@ class RequestHandler(SimpleHTTPRequestHandler):
         poller.register(updates, zmq.POLLIN)
         poller.register(hm, zmq.POLLIN)
 
+        temp = 0.0
+
         while True:
             ready = dict(poller.poll())
             if hm in ready:
@@ -55,6 +57,14 @@ class RequestHandler(SimpleHTTPRequestHandler):
 
             if updates in ready:
                 update = updates.recv_json()
+
+                new_temp = update['temperature']
+
+                delta = abs(temp - new_temp)
+                if delta < 0.1:
+                    continue
+                temp = new_temp
+
                 js = json.dumps(update)
                 self.wfile.write('data: %s \n\n' % js)
                 self.wfile.flush()

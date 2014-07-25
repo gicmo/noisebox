@@ -69,7 +69,7 @@
         this.last_update = ko.observable("Never ;-(");
 
         this.updating = ko.observable(false);
-        self.sse_support = ko.observable(false); //ko.observable(typeof(EventSource) !== "undefined");
+        self.sse_support = ko.observable(typeof(EventSource) !== "undefined");
         self.event_source = null;
 
         self.update_type = ko.computed(function(){
