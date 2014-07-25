@@ -30,6 +30,35 @@ class RequestHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(str(response))
 
+    def subscribe(self):
+        zmq_ctx = self.server.zmq_ctx
+        updates = zmq_ctx.socket(zmq.SUB)
+        updates.connect("tcp://localhost:5556")
+        updates.setsockopt_string(zmq.SUBSCRIBE, u'')
+
+        hm = zmq_ctx.socket(zmq.SUB)
+        hm.connect("inproc://hangman")
+        hm.setsockopt_string(zmq.SUBSCRIBE, u'')
+
+        self.send_response(200)
+        self.send_header('Content-type', 'text/event-stream')
+        self.end_headers()
+
+        poller = zmq.Poller()
+        poller.register(updates, zmq.POLLIN)
+        poller.register(hm, zmq.POLLIN)
+
+        while True:
+            ready = dict(poller.poll())
+            if hm in ready:
+                break  # This is our stop signal
+
+            if updates in ready:
+                update = updates.recv_json()
+                js = json.dumps(update)
+                self.wfile.write('data: %s \n\n' % js)
+                self.wfile.flush()
+
     def do_GET(self):
         if self.path == '/' or self.path == 'index.htm':
             self.serve_file()
@@ -37,6 +66,8 @@ class RequestHandler(SimpleHTTPRequestHandler):
             self.serve_file()
         elif self.path == '/data':
             self.data()
+        elif self.path == '/subscribe':
+            self.subscribe()
         else:
             self.send_response(404)
             self.send_header('Content-type', 'text/plain')

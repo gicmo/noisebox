@@ -46,7 +46,16 @@
             </h1>
         </div>
     </div>
-    <div class="footer"><small>Last update: <span data-bind="text: last_update"></span></small></div>
+    <div class="footer">
+        <div class="row">
+            <div class="col-md-11">
+                <small>Last update: <span data-bind="text: last_update"></span></small>
+             </div>
+            <div class="col-md-1">
+                <i data-bind="css: { 'animate-spin': updating() != false }" class="icon-spin5 color-gray"></i>
+            </div>
+        </div>
+    </div>
 </div>
 <script type="text/javascript">
 
@@ -56,13 +65,16 @@
         this.humidity = ko.observable("NA");
         this.last_update = ko.observable("Never ;-(");
 
-        self.load_data = function() {
-            var jqxhr = $.getJSON("data", function(data) {
-                self.temperature(data.temperature.toPrecision(4));
+        this.updating = ko.observable(false);
 
-                var now = new Date();
-                self.last_update(now.toDateString() + " @ " + now.toTimeString());
-                self.install_timer();
+        self.sse_support = typeof(EventSource) !== "undefined";
+        self.event_source = null;
+
+        self.load_data = function() {
+            self.updating(true);
+            var jqxhr = $.getJSON("data", function(data) {
+                self.update_from_data(data);
+                self.updating(false);
             });
 
             jqxhr.fail(function(jqxhr, textStatus, error) {
@@ -73,13 +85,46 @@
         };
 
         self.install_timer = function() {
-            setTimeout(function(){
+
+            if (self.sse_support) {
+                // we use see, no need for polling!
+                return;
+            }
+
+            console.log('Installing timer');
+            setTimeout(function() {
                 self.load_data();
             }, 2000);
         };
 
+        self.update_from_data = function(data) {
+            self.temperature(data.temperature.toPrecision(4));
+
+            var now = new Date();
+            self.last_update(now.toDateString() + " @ " + now.toTimeString());
+            self.install_timer();
+        };
+
         self.initialize = function() {
             self.load_data();
+
+            if (self.sse_support) {
+
+                self.event_source = new EventSource("subscribe");
+                self.event_source.onmessage = function(e) {
+                    if (!self.updating()) {
+                        self.updating(true);
+                    }
+                    var data = JSON.parse(e.data);
+                    self.update_from_data(data);
+                    console.log('Got SSE Data');
+                };
+
+                self.event_source.onerror = function() {
+                    self.updating(false);
+                    console.log('Event source error');
+                };
+            }
         };
 
     }
