@@ -4,6 +4,9 @@
 #include <chrono>
 #include <thread>
 #include <algorithm>
+#include <atomic>
+#include <cassert>
+#include <string>
 
 #include <errno.h>
 #include <stdlib.h>
@@ -18,6 +21,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <signal.h>
 
 #include "zmq.hpp"
 #include <json/json.h>
@@ -151,6 +155,20 @@ static inline void forward_msg(zmq::message_t &msg,
     }
 }
 
+template<int N>
+static inline bool poll(zmq_pollitem_t (&items)[N], long timeout = -1)
+{
+    int ret = zmq_poll(items, N, timeout);
+
+    if (ret < 0) {
+        if (errno != EINTR) {
+            throw std::runtime_error("zmq_poll error!");
+        }
+    }
+
+    return ret > 0;
+}
+
 } //namespace util
 
 static void
@@ -159,10 +177,28 @@ mcp_loop(zmq::context_t &zmq_ctx, i2c::mcp9808 &mcp)
     zmq::socket_t publisher(zmq_ctx, ZMQ_PUB);
     publisher.connect("inproc://sensors");
 
+    zmq::socket_t hangman(zmq_ctx, ZMQ_SUB);
+    hangman.connect("inproc://hangman");
+    hangman.setsockopt(ZMQ_SUBSCRIBE, "", 0);
+
+    zmq_pollitem_t items[] = {
+        {static_cast<void *>(hangman), 0, ZMQ_POLLIN, 0 }
+    };
+
+    long timeout = 2000; //in ms
     while (1) {
 
-        std::chrono::milliseconds duration(2000);
-        std::this_thread::sleep_for(duration);
+        bool ready = util::poll(items, timeout);
+
+        if (ready) {
+            assert(items[0].revents & ZMQ_POLLIN);
+            zmq::message_t msg;
+            hangman.recv(&msg);
+
+            //currently the only message we can get
+            //is to stop
+            return;
+        }
 
         float temp = mcp.read_temperature();
         std::cout << "Temperature: " << temp << std::endl;
@@ -177,6 +213,26 @@ mcp_loop(zmq::context_t &zmq_ctx, i2c::mcp9808 &mcp)
 
 }
 
+// signal handling
+static std::atomic<bool> run_the_loop;
+
+static void stop_signal_handler (int signal_value)
+{
+    std::cout << "Got the stop signal. Stopping." << std::endl;
+    run_the_loop = false;
+}
+
+static void init_signals()
+{
+    struct sigaction sig_action;
+
+    sig_action.sa_handler = stop_signal_handler;
+    sig_action.sa_flags = 0;
+    sigemptyset (&sig_action.sa_mask);
+
+    sigaction (SIGINT, &sig_action, NULL);
+    sigaction (SIGTERM, &sig_action, NULL);
+}
 
 int main(int argc, char **argv)
 {
@@ -185,11 +241,17 @@ int main(int argc, char **argv)
 
     zmq::context_t context(1);
 
+    zmq::socket_t hangman(context, ZMQ_PUB);
+    hangman.bind("inproc://hangman");
+
     zmq::socket_t collector(context, ZMQ_XSUB);
     collector.bind("inproc://sensors");
 
     zmq::socket_t emitter(context, ZMQ_XPUB);
     emitter.bind("tcp://*:5556");
+
+    run_the_loop = true;
+    init_signals();
 
     std::thread mcp_thread(mcp_loop, std::ref(context), std::ref(dev));
 
@@ -200,10 +262,10 @@ int main(int argc, char **argv)
     };
 
 
-    while (1) {
+    while (run_the_loop) {
         zmq::message_t msg;
 
-        zmq_poll(items, 2, -1);
+        util::poll(items);
 
         if (items[0].revents & ZMQ_POLLIN) {
             util::forward_msg(msg, collector, emitter);
@@ -214,7 +276,9 @@ int main(int argc, char **argv)
         }
     }
 
-    //TODO: need a way to stop the thread, shared bool var or so
+    zmq::message_t stop_msg;
+    hangman.send(stop_msg);
+
     mcp_thread.join();
 
     return 0;
