@@ -20,6 +20,8 @@
     <script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/knockout/3.0.0/knockout-debug.js"></script>
     <script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.1.1/js/bootstrap.js"></script>
     <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.2.0/css/bootstrap.min.css">
+    <script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/d3/3.4.11/d3.min.js"></script>
+    <script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/moment.js/2.7.0/moment.min.js"></script>
     <link rel="stylesheet" href="css/fontello.css">
     <link rel="stylesheet" href="css/animation.css"><!--[if IE 7]><link rel="stylesheet" href="css/fontello-ie7.css"><![endif]-->
     <link rel="stylesheet" href="css/jt-narrow.css">
@@ -45,6 +47,9 @@
                 <span data-bind="text: humidity" ></span> <small> %</small>
             </h1>
         </div>
+    </div>
+    <div id="graph-current" class="graph">
+
     </div>
     <div class="footer">
         <div class="row">
@@ -76,6 +81,8 @@
             return self.sse_support() ? 'sse' : 'poll';
         });
 
+        self.data = [];
+
 
         self.load_data = function() {
             self.updating(true);
@@ -105,15 +112,20 @@
         };
 
         self.update_from_data = function(data) {
-            self.temperature(data.temperature.toPrecision(4));
+            var temp = data.temperature.toPrecision(4);
+            self.temperature(temp);
 
             var now = new Date();
             self.last_update(now.toDateString() + " @ " + now.toTimeString());
+
+            self.data.push({ timestamp: now, temp: temp, humidity: 50.0 + Math.random() * 10});
+            self.graph.update();
             self.install_timer();
         };
 
         self.initialize = function() {
             self.load_data();
+            self.make_graph(600, 100);
 
             if (self.sse_support()) {
 
@@ -132,8 +144,151 @@
                     console.log('Event source error');
                 };
             }
+
+
         };
 
+        self.fake_data = function() {
+
+            var cur = moment().startOf("day");
+            var now = moment();
+
+            var data = [];
+            while(cur.isBefore(now)) {
+                data.push({
+                    timestamp: cur.clone().toDate(),
+                    temp: 30.0 + Math.random() * 10,
+                    humidity: 50.0 + Math.random() * 10
+                });
+
+                cur = cur.add('m', 10);
+            }
+
+            return data;
+        };
+
+        self.make_graph = function(width, height) {
+            var margin = {top: 20, right: 50, bottom: 30, left: 50};
+
+            var x = d3.time.scale()
+                    .range([0, width])
+                    .domain([
+                        moment().subtract('m', 30).toDate(),
+                        moment().add('m', 30).toDate()
+                    ]);
+
+            var y = d3.scale.linear()
+                    .range([height, 0])
+                    .domain([20, 40]);
+
+            var y1 = d3.scale.linear()
+                    .range([height, 0])
+                    .domain([0, 100]);
+
+            var ax = d3.svg.axis()
+                    .scale(x)
+                    .orient("bottom")
+                    .ticks(10);
+
+            var ay = d3.svg.axis()
+                    .scale(y)
+                    .orient("left").ticks(4);
+
+            var ay1 = d3.svg.axis()
+                    .scale(y1)
+                    .orient("right").ticks(5);
+
+            var svg = d3.select("#graph-current").append("svg")
+                    .attr("width", width + margin.left + margin.right)
+                    .attr("height", height + margin.top + margin.bottom)
+                    .append("g")
+                    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+            svg.append("g")
+                    .attr("class", "x axis")
+                    .attr("id", "x")
+                    .attr("transform", "translate(0," + height + ")")
+                    .call(ax);
+
+            svg.append("g")
+                    .attr("class", "y axis")
+                    .attr("id", "y0")
+                    .call(ay)
+                    .append("text")
+                    .attr("transform", "rotate(-90)")
+                    .attr("y", 6)
+                    .attr("dy", ".71em")
+                    .style("text-anchor", "end")
+                    .text("Temperature");
+
+            svg.append("g")
+                    .attr("class", "y axis")
+                    .attr("id", "y1")
+                    .attr("transform", "translate(" + (width - margin.right) + " ,0)")
+                    .call(ay1)
+                    .append("text")
+                    .attr("transform", "rotate(-90)")
+                    .attr("dy", "-.71em")
+                    .style("text-anchor", "end")
+                    .text("Humidity");
+
+            var data = self.data;
+
+            var line_temp = d3.svg.line()
+                    .x(function(d) { return x(d.timestamp); })
+                    .y(function(d) { return y(d.temp); });
+
+            var line_hudt = d3.svg.line()
+                    .x(function(d) { return x(d.timestamp); })
+                    .y(function(d) { return y1(d.humidity); });
+
+            var zoom = d3.behavior.zoom()
+                    //.scaleExtent([1, 1]) //no zooming for now
+                    .on("zoom", draw);
+
+            zoom.x(x);
+
+            svg.append("rect")
+                    .attr("class", "pane")
+                    .attr("width", width)
+                    .attr("height", height)
+                    .call(zoom);
+
+            svg.append("path")
+                    .datum(data)
+                    .attr("id", "line-temperature")
+                    .attr("class", "line data-temperature")
+                    .attr("d", line_temp);
+
+            svg.append("path")
+                    .datum(data)
+                    .attr("id", "line-humidity")
+                    .attr("class", "line data-humidity")
+                    .attr("d", line_hudt);
+
+            function draw() {
+                svg.select("#x").call(ax);
+                svg.select("#y0").call(ay);
+                svg.select("#y1").call(ay1);
+                svg.select("#line-temperature").attr("d", line_temp);
+                svg.select("#line-humidity").attr("d", line_hudt);
+            }
+
+            self.graph = {
+                update: function () {
+                    svg.selectAll("#line-temperature")
+                            .data([self.data]) // set the new data
+                            .attr("d", line_temp);
+                    svg.selectAll("#line-humidity")
+                            .data([self.data]) // set the new data
+                            .attr("d", line_hudt);
+                },
+                svg: svg,
+                temp: line_temp,
+                hudt: line_hudt
+            };
+
+        }
     }
 
     var view_model = new AppViewModel();

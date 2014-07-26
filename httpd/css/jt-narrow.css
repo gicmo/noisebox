@@ -63,3 +63,43 @@ body {
 i.color-gray {
     color: gray;
 }
+
+/* graph styling */
+
+.graph {
+    font: 10px sans-serif;
+}
+
+.axis path,
+.axis line {
+    fill: none;
+    stroke: #000;
+    shape-rendering: crispEdges;
+}
+
+.x.axis path {
+    display: none;
+}
+
+.y.axis path {
+    stroke-width: 0.5px;
+}
+
+.line {
+    fill: none;
+    stroke-width: 1.5px;
+}
+
+.data-temperature {
+    stroke: steelblue;
+}
+
+.data-humidity {
+    stroke: #ff4955;
+}
+
+rect.pane {
+    cursor: move;
+    fill: none;
+    pointer-events: all;
+}
