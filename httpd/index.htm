@@ -224,7 +224,7 @@
             svg.append("g")
                     .attr("class", "y axis")
                     .attr("id", "y1")
-                    .attr("transform", "translate(" + (width - margin.right) + " ,0)")
+                    .attr("transform", "translate(" + (width - margin.right/2.0) + " ,0)")
                     .call(ay1)
                     .append("text")
                     .attr("transform", "rotate(-90)")
@@ -254,17 +254,28 @@
                     .attr("height", height)
                     .call(zoom);
 
+            svg.append("clipPath")
+                    .attr("id", "clip")
+                    .append("rect")
+                    .attr("x", "0")
+                    .attr("y", "0")
+                    .attr("width", width - margin.right/2.0)
+                    .attr("height", height);
+
+
             svg.append("path")
                     .datum(data)
                     .attr("id", "line-temperature")
                     .attr("class", "line data-temperature")
-                    .attr("d", line_temp);
+                    .attr("d", line_temp)
+                    .attr("clip-path", "url(#clip)");
 
             svg.append("path")
                     .datum(data)
                     .attr("id", "line-humidity")
                     .attr("class", "line data-humidity")
-                    .attr("d", line_hudt);
+                    .attr("d", line_hudt)
+                    .attr("clip-path", "url(#clip)");
 
             function draw() {
                 svg.select("#x").call(ax);
@@ -285,7 +296,11 @@
                 },
                 svg: svg,
                 temp: line_temp,
-                hudt: line_hudt
+                hudt: line_hudt,
+                x: x,
+                y0: y,
+                y1: y1,
+                zoom: zoom
             };
 
         }
