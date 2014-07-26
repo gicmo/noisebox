@@ -188,6 +188,16 @@ mcp_loop(zmq::context_t &zmq_ctx, i2c::mcp9808 &mcp)
     long timeout = 2000; //in ms
     while (1) {
 
+        float temp = mcp.read_temperature();
+        std::cout << "Temperature: " << temp << std::endl;
+
+        Json::Value js;
+        js["temperature"] = temp;
+
+        zmq::message_t msg = util::message_from_json(js);
+
+        publisher.send(msg);
+
         bool ready = util::poll(items, timeout);
 
         if (ready) {
@@ -199,16 +209,6 @@ mcp_loop(zmq::context_t &zmq_ctx, i2c::mcp9808 &mcp)
             //is to stop
             return;
         }
-
-        float temp = mcp.read_temperature();
-        std::cout << "Temperature: " << temp << std::endl;
-
-        Json::Value js;
-        js["temperature"] = temp;
-
-        zmq::message_t msg = util::message_from_json(js);
-
-        publisher.send(msg);
     }
 }
 
