@@ -17,6 +17,7 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake")
 
 find_package(ZMQ REQUIRED)
 find_package(JsonCpp REQUIRED)
+find_package(BerkeleyDB REQUIRED)
 
 include_directories(${JSONCPP_INCLUDE_DIR}
                     ${ZMQ_INCLUDE_DIR})
@@ -41,6 +42,10 @@ set(sensord_INCLUDES
 
 add_executable(nb-sensord ${sensord_SOURCES})
 target_link_libraries(nb-sensord noisebox ${ZMQ_LIBRARY} ${JSONCPP_LIBRARY})
+
+set(stored_SOURCES src/stored.cc)
+add_executable(nb-stored ${stored_SOURCES})
+target_link_libraries(nb-stored noisebox ${ZMQ_LIBRARY} ${JSONCPP_LIBRARY} ${BDB_LIBRARIES})
 set(htu21d_SOURCES tools/htu21d.cc)
 add_executable(htu21d ${htu21d_SOURCES})
 target_link_libraries(htu21d noisebox)
