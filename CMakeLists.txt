@@ -23,8 +23,7 @@ include_directories(${JSONCPP_INCLUDE_DIR}
 
 # nb c++ lib
 file(GLOB_RECURSE noisebox_SOURCES lib/*.cc)
-file(GLOB_RECURSE noisebox_INCLUDES lib/*.h)
-file(GLOB_RECURSE noisebox_INCLUDES lib/*.hpp)
+file(GLOB_RECURSE noisebox_INCLUDES lib/*.h*)
 include_directories(lib)
 
 add_library(noisebox SHARED ${noisebox_INCLUDES} ${noisebox_SOURCES})
@@ -42,3 +41,6 @@ set(sensord_INCLUDES
 
 add_executable(nb-sensord ${sensord_SOURCES})
 target_link_libraries(nb-sensord noisebox ${ZMQ_LIBRARY} ${JSONCPP_LIBRARY})
+set(htu21d_SOURCES tools/htu21d.cc)
+add_executable(htu21d ${htu21d_SOURCES})
+target_link_libraries(htu21d noisebox)
