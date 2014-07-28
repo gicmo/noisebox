@@ -107,6 +107,44 @@ mcp_loop(zmq::context_t &zmq_ctx, i2c::mcp9808 &mcp)
 }
 
 static void
+htu_loop(zmq::context_t &zmq_ctx, i2c::htu21d &sensor)
+{
+    zmq::socket_t publisher(zmq_ctx, ZMQ_PUB);
+    publisher.connect("inproc://sensors");
+
+    zmq::socket_t hangman(zmq_ctx, ZMQ_SUB);
+    hangman.connect("inproc://hangman");
+    hangman.setsockopt(ZMQ_SUBSCRIBE, "", 0);
+
+    zmq_pollitem_t items[] = {
+            {static_cast<void *>(hangman), 0, ZMQ_POLLIN, 0 }
+    };
+
+    long timeout = 2000; //in ms
+    while (1) {
+
+        float humidity = sensor.read_humidity();
+        std::cout << "H: " << humidity << std::endl;
+
+        wire::sensor_update update = {0x02, 0x00, 0x40, humidity};
+        zmq::message_t msg = update.make_msg();
+        publisher.send(msg);
+
+        bool ready = util::poll(items, timeout);
+
+        if (ready) {
+            assert(items[0].revents & ZMQ_POLLIN);
+            zmq::message_t hg_msg;
+            hangman.recv(&hg_msg);
+
+            //currently the only message we can get
+            //is to stop
+            return;
+        }
+    }
+}
+
+static void
 datastore_loop(zmq::context_t &zmq_ctx)
 {
     zmq::socket_t sensor_updates(zmq_ctx, ZMQ_SUB);
@@ -127,6 +165,7 @@ datastore_loop(zmq::context_t &zmq_ctx)
     };
 
     float temp = 0.0;
+    float humidity = 0.0;
 
     while (1) {
 
@@ -150,6 +189,8 @@ datastore_loop(zmq::context_t &zmq_ctx)
 
             if (update.type == 0x01) {
                 temp = update.value;
+            } else if (update.type == 0x02) {
+                humidity = update.value;
             } else {
                 std::cerr << "[W] got update of unkown type" << std::endl;
             }
@@ -163,6 +204,7 @@ datastore_loop(zmq::context_t &zmq_ctx)
 
             Json::Value js;
             js["temperature"] = temp;
+            js["humidity"] = humidity;
             zmq::message_t msg = util::message_from_json(js);
             service.send(msg);
 
@@ -194,8 +236,9 @@ static void init_signals()
 
 int main(int argc, char **argv)
 {
-    printf("Temperature from MCP9808\n");
-    i2c::mcp9808 dev = i2c::mcp9808::open(1, 0x18);
+    printf("Temperature from MCP9808, Humidity from HTU21D\n");
+    i2c::mcp9808 mcp_dev = i2c::mcp9808::open(1, 0x18);
+    i2c::htu21d  htu_dev = i2c::htu21d::open(1, 0x40);
 
     zmq::context_t context(1);
 
@@ -211,7 +254,8 @@ int main(int argc, char **argv)
     run_the_loop = true;
     init_signals();
 
-    std::thread mcp_thread(mcp_loop, std::ref(context), std::ref(dev));
+    std::thread mcp_thread(mcp_loop, std::ref(context), std::ref(mcp_dev));
+    std::thread htu_thread(htu_loop, std::ref(context), std::ref(htu_dev));
     std::thread dst_thread(datastore_loop, std::ref(context));
 
     //now the main runloop
@@ -239,6 +283,7 @@ int main(int argc, char **argv)
     hangman.send(stop_msg);
 
     mcp_thread.join();
+    htu_thread.join();
     dst_thread.join();
 
     return 0;

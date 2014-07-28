@@ -22,11 +22,11 @@ class RequestHandler(SimpleHTTPRequestHandler):
         ipc = self.server.zmq_ctx.socket(zmq.REQ)
         ipc.connect("inproc://data")
         ipc.send(b"GetData")
-        temperature = ipc.recv_json()
+        data = ipc.recv_json()
 
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
-        response = json.dumps(temperature, sort_keys=True, indent=4, separators=(', ', ': '))
+        response = json.dumps(data, sort_keys=True, indent=4, separators=(', ', ': '))
         self.send_header('Content-length', len(response))
         self.end_headers()
         self.wfile.write(str(response))
@@ -59,7 +59,8 @@ class RequestHandler(SimpleHTTPRequestHandler):
                 ut, _, _, val = struct.unpack('HHIf', update)
 
                 known_ut = {
-                    1 : 'temperature'
+                    1: 'temperature',
+                    2: 'humidity'
                 }
 
                 if ut not in known_ut:
@@ -116,8 +117,8 @@ class ThreadingServer(ThreadingMixIn, HTTPServer):
 
     def update_bg_thread(self):
         zmq_ctx = self.zmq_ctx
-        temperature = self.load_initial_data()
-        print(temperature)
+        data = self.load_initial_data()
+        print(data)
         updates = zmq_ctx.socket(zmq.SUB)
         updates.connect("tcp://localhost:5556")
         updates.setsockopt_string(zmq.SUBSCRIBE, u'')
@@ -147,11 +148,13 @@ class ThreadingServer(ThreadingMixIn, HTTPServer):
                 msg = updates.recv()
                 ut, _, _, value = struct.unpack('HHIf', msg)
                 if ut == 1:
-                    temperature = value
+                    data['temperature'] = value
+                elif ut == 2:
+                    data['humidity'] = value
 
             if service in ready:
                 req = service.recv_string()
-                service.send_json(temperature)
+                service.send_json(data)
 
 if __name__ == "__main__":
     print("Noisebox monitor - HTTPd")

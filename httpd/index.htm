@@ -78,8 +78,8 @@
 
     function AppViewModel() {
         var self = this;
-        this.temperature = ko.observable("NA");
-        this.humidity = ko.observable("NA");
+        this.temperature = ko.observable(NaN);
+        this.humidity = ko.observable(NaN);
         this.last_update = ko.observable("Never ;-(");
 
         this.updating = ko.observable(false);
@@ -97,7 +97,7 @@
         self.load_data = function() {
             self.updating(true);
             var jqxhr = $.getJSON("data", function(data) {
-                self.update_from_data(JSON.parse(data));
+                self.update_from_data(data);
                 self.updating(false);
             });
 
@@ -128,17 +128,34 @@
                 return;
             }
 
-            var temp = data.temperature.toPrecision(4);
-            self.temperature(temp);
+            var known_update = false;
+            var val;
 
-            var now = new Date();
-            self.last_update(now.toDateString() + " @ " + now.toTimeString());
+            if ('temperature' in data) {
+                val = data.temperature.toPrecision(4);
+                self.temperature(val);
+                known_update = true;
+            }
 
-            self.data.push({ timestamp: now, temp: temp, humidity: 50.0 + Math.random() * 10});
-            self.graph.update();
+            if ('humidity' in data) {
+                val = data.humidity.toPrecision(4);
+                self.humidity(val);
+                known_update = true;
+            }
 
-            if (self.autoscroll()) {
-                self.graph.autoscroll(now, 0);
+            if (!known_update) {
+                console.log("Unknown update");
+            } else if (!isNaN(self.temperature()) && !isNaN(self.humidity())) {
+
+                var now = new Date();
+                self.last_update(now.toDateString() + " @ " + now.toTimeString());
+                self.data.push({timestamp: now, temp: self.temperature(), humidity: self.humidity()});
+
+                self.graph.update();
+
+                if (self.autoscroll()) {
+                    self.graph.autoscroll(now, 0);
+                }
             }
 
             self.install_timer();

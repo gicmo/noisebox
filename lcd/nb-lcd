@@ -25,13 +25,16 @@ socket.connect("tcp://localhost:5556")
 socket.setsockopt_string(zmq.SUBSCRIBE, u"")
 
 temp = 0.0
+humidity = 0.0
 while True:
     msg = socket.recv()
     ut, _, _, val = struct.unpack('HHIf', msg)
     if ut == 1:
         temp = val
+    elif ut == 2:
+        humidity = val
     lcd.clear()
-    sys.stdout.write("\r T: %3.5f%s" % (temp, " "*17))
+    sys.stdout.write("\r  T: %3.5f H: %3.5f %s" % (temp, humidity, " "*3))
     sys.stdout.flush()
-    lcd.message("T: %3.2f" % temp)
+    lcd.message("T: %3.2f\nH: %3.2f" % (temp, humidity))
 
