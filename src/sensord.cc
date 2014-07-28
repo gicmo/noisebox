@@ -250,16 +250,8 @@ datastore_loop(zmq::context_t &zmq_ctx)
 
         if (items[1].revents & ZMQ_POLLIN) {
             // Sensor update
-            zmq::message_t update;
-            sensor_updates.recv(&update);
-
-            if (wire::zmq_data_is_aligned_for<wire::sensor_update>(update.data())) {
-                const wire::sensor_update *data = wire::sensor_update::cast_from_msg(update);
-                temp = data->value;
-            } else {
-                wire::sensor_update data = wire::sensor_update::from_msg(update);
-                temp = data.value;
-            }
+            auto update = wire::sensor_update::receive(sensor_updates);
+            temp = update.value;
         }
 
         //TODO UPDATE

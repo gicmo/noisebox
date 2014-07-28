@@ -45,6 +45,13 @@ public:
         //TODO: validate
         return data;
     }
+
+    static inline sensor_update receive(zmq::socket_t &sock) {
+        zmq::message_t update;
+        sock.recv(&update);
+        sensor_update data = sensor_update::from_msg(update);
+        return data;
+    }
 };
 
 template<typename T>
