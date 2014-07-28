@@ -147,7 +147,13 @@ datastore_loop(zmq::context_t &zmq_ctx)
         if (items[1].revents & ZMQ_POLLIN) {
             // Sensor update
             auto update = wire::sensor_update::receive(sensor_updates);
-            temp = update.value;
+
+            if (update.type == 0x01) {
+                temp = update.value;
+            } else {
+                std::cerr << "[W] got update of unkown type" << std::endl;
+            }
+
         }
 
         //TODO UPDATE

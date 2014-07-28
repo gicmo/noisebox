@@ -24,10 +24,12 @@ sys.stdout.flush()
 socket.connect("tcp://localhost:5556")
 socket.setsockopt_string(zmq.SUBSCRIBE, u"")
 
-
+temp = 0.0
 while True:
     msg = socket.recv()
-    _, _, _, temp = struct.unpack('HHIf', msg)
+    ut, _, _, val = struct.unpack('HHIf', msg)
+    if ut == 1:
+        temp = val
     lcd.clear()
     sys.stdout.write("\r T: %3.5f%s" % (temp, " "*17))
     sys.stdout.flush()
