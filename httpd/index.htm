@@ -48,14 +48,23 @@
             </h1>
         </div>
     </div>
+    <div class="row">
+
+    </div>
     <div id="graph-current" class="graph">
 
     </div>
     <div class="footer">
         <div class="row">
-            <div class="col-md-11">
+            <div class="col-md-6 col-md-offset-1">
                 <small>Last update: <span data-bind="text: last_update"></span></small>
              </div>
+            <div class="col-md-1 col-md-offset-1" stype="padding-left: 0px;">
+                <div class="switch" >
+                        <input type="checkbox" value="1" id="checkbox_input" data-bind="checked: autoscroll" />
+                        <label for="checkbox_input"></label>
+                    </div>
+            </div>
             <div class="col-md-1">
                 <i data-bind="css: { 'animate-spin': updating,
                                      'icon-spin5': update_type() == 'sse',
@@ -81,13 +90,14 @@
             return self.sse_support() ? 'sse' : 'poll';
         });
 
+        self.autoscroll = ko.observable(false);
         self.data = [];
 
-
+        
         self.load_data = function() {
             self.updating(true);
             var jqxhr = $.getJSON("data", function(data) {
-                self.update_from_data(data);
+                self.update_from_data(JSON.parse(data));
                 self.updating(false);
             });
 
@@ -112,6 +122,12 @@
         };
 
         self.update_from_data = function(data) {
+
+            if(!data) {
+                console.log('Got invalid update data');
+                return;
+            }
+
             var temp = data.temperature.toPrecision(4);
             self.temperature(temp);
 
@@ -120,6 +136,11 @@
 
             self.data.push({ timestamp: now, temp: temp, humidity: 50.0 + Math.random() * 10});
             self.graph.update();
+
+            if (self.autoscroll()) {
+                self.graph.autoscroll(now, 0);
+            }
+
             self.install_timer();
         };
 
@@ -136,7 +157,6 @@
                     }
                     var data = JSON.parse(e.data);
                     self.update_from_data(data);
-                    console.log('Got SSE Data');
                 };
 
                 self.event_source.onerror = function() {
@@ -294,13 +314,20 @@
                             .data([self.data]) // set the new data
                             .attr("d", line_hudt);
                 },
-                svg: svg,
-                temp: line_temp,
-                hudt: line_hudt,
-                x: x,
-                y0: y,
-                y1: y1,
-                zoom: zoom
+                autoscroll: function(center_timepoint, transition_time) {
+                    var d = x.domain();
+                    var delta = (moment(d[1]).valueOf() -  moment(d[0]).valueOf()) / 2;
+
+                    var center = moment(center_timepoint);
+
+                    var start  = center.clone().subtract('ms', delta);
+                    var finish = center.clone().add('ms', delta);
+
+                    svg.transition()
+                            .duration(transition_time)
+                            .call(zoom.x(x.domain([start, finish])).event);
+                },
+                svg: svg
             };
 
         }
