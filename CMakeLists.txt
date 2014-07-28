@@ -18,10 +18,27 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake")
 find_package(ZMQ REQUIRED)
 find_package(JsonCpp REQUIRED)
 
-include_directories(${JSONCPP_INCLUDE_DIR} ${ZMQ_INCLUDE_DIR})
+include_directories(${JSONCPP_INCLUDE_DIR}
+                    ${ZMQ_INCLUDE_DIR})
 
-file(GLOB_RECURSE noisebox_SOURCES src/*.cc)
-file(GLOB_RECURSE noisebox_INCLUDES src/*.h)
+# nb c++ lib
+file(GLOB_RECURSE noisebox_SOURCES lib/*.cc)
+file(GLOB_RECURSE noisebox_INCLUDES lib/*.h)
+file(GLOB_RECURSE noisebox_INCLUDES lib/*.hpp)
+include_directories(lib)
 
-add_executable(nb-sensord ${noisebox_SOURCES})
-target_link_libraries(nb-sensord ${ZMQ_LIBRARY} ${JSONCPP_LIBRARY})
+add_library(noisebox SHARED ${noisebox_INCLUDES} ${noisebox_SOURCES})
+target_link_libraries(noisebox ${ZMQ_LIBRARY} ${JSONCPP_LIBRARY})
+set_target_properties(noisebox PROPERTIES
+		              VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}
+		              SOVERSION ${VERSION_ABI})
+
+# sensor daemon (hw interface)
+
+set(sensord_SOURCES
+    src/sensord.cc)
+set(sensord_INCLUDES
+    src/sensor.h)
+
+add_executable(nb-sensord ${sensord_SOURCES})
+target_link_libraries(nb-sensord noisebox ${ZMQ_LIBRARY} ${JSONCPP_LIBRARY})

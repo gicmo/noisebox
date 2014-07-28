@@ -10,6 +10,7 @@ from SocketServer import ThreadingMixIn
 from BaseHTTPServer import HTTPServer
 from SimpleHTTPServer import SimpleHTTPRequestHandler
 import signal
+import struct
 
 
 class RequestHandler(SimpleHTTPRequestHandler):
@@ -48,24 +49,16 @@ class RequestHandler(SimpleHTTPRequestHandler):
         poller.register(updates, zmq.POLLIN)
         poller.register(hm, zmq.POLLIN)
 
-        temp = 0.0
-
         while True:
             ready = dict(poller.poll())
             if hm in ready:
                 break  # This is our stop signal
 
             if updates in ready:
-                update = updates.recv_json()
+                update = updates.recv()
+                _, _, _, temp = struct.unpack('HHIf', update)
 
-                new_temp = update['temperature']
-
-                delta = abs(temp - new_temp)
-                if delta < 0.1:
-                    continue
-                temp = new_temp
-
-                js = json.dumps(update)
+                js = json.dumps({'temperature': temp})
                 self.wfile.write('data: %s \n\n' % js)
                 self.wfile.flush()
 
@@ -144,7 +137,8 @@ class ThreadingServer(ThreadingMixIn, HTTPServer):
                 break  # This is our stop signal
 
             if updates in ready:
-                temperature = updates.recv_json()
+                msg = updates.recv()
+                _, _, _, temperature = struct.unpack('HHIf', msg)
 
             if service in ready:
                 req = service.recv_string()

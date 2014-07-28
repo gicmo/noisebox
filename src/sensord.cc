@@ -23,9 +23,11 @@
 #include <fcntl.h>
 #include <signal.h>
 
-#include "zmq.hpp"
+#include <zmq.hpp>
 #include <json/json.h>
 
+//libnoisebox
+#include <wire.h>
 
 namespace i2c {
 
@@ -122,7 +124,6 @@ public:
 
         return temp;
     }
-
 };
 
 } //namespace i2c
@@ -189,21 +190,18 @@ mcp_loop(zmq::context_t &zmq_ctx, i2c::mcp9808 &mcp)
     while (1) {
 
         float temp = mcp.read_temperature();
-        std::cout << "Temperature: " << temp << std::endl;
+        std::cout << "T: " << temp << std::endl;
 
-        Json::Value js;
-        js["temperature"] = temp;
-
-        zmq::message_t msg = util::message_from_json(js);
-
+        wire::sensor_update update = {0x01, 0x00, 0x18, temp};
+        zmq::message_t msg = update.make_msg();
         publisher.send(msg);
 
         bool ready = util::poll(items, timeout);
 
         if (ready) {
             assert(items[0].revents & ZMQ_POLLIN);
-            zmq::message_t msg;
-            hangman.recv(&msg);
+            zmq::message_t hg_msg;
+            hangman.recv(&hg_msg);
 
             //currently the only message we can get
             //is to stop
@@ -255,19 +253,16 @@ datastore_loop(zmq::context_t &zmq_ctx)
             zmq::message_t update;
             sensor_updates.recv(&update);
 
-            Json::Value js;
-            Json::Reader reader;
-
-            std::string input(static_cast<char*>(update.data()));
-
-            if (!reader.parse(input, js)) {
-                std::cerr << "Could not parse sensor update" << std::endl;
+            if (wire::zmq_data_is_aligned_for<wire::sensor_update>(update.data())) {
+                const wire::sensor_update *data = wire::sensor_update::cast_from_msg(update);
+                temp = data->value;
             } else {
-                temp = js["temperature"].asFloat();
-                std::cout << "T:" << temp << std::endl;
+                wire::sensor_update data = wire::sensor_update::from_msg(update);
+                temp = data.value;
             }
         }
 
+        //TODO UPDATE
         if (items[2].revents & ZMQ_POLLIN) {
             zmq::message_t request;
             service.recv (&request);
