@@ -122,6 +122,92 @@ public:
     }
 };
 
+class htu21d : public device {
+
+    enum codes {
+        SOFT_RESET = 0xFE,
+        READ_TEMP = 0xF3,
+        READ_HUMIDITY = 0xF5
+    };
+
+private:
+    htu21d(int fd) : device(fd) {
+
+    }
+
+public:
+    htu21d(device &&other) : device(std::move(other)) {
+    }
+
+    static htu21d open(int i2c_bus, int address) {
+        return device::open(i2c_bus, address);
+    }
+
+    void reset() {
+        int32_t res = i2c_smbus_write_byte(fd, SOFT_RESET);
+
+        if (res < 0) {
+            throw i2c_error("Could not write to bus");
+        }
+
+        //"The soft reset takes less than 15ms."
+        std::chrono::milliseconds max_reset(20);
+        std::this_thread::sleep_for(max_reset);
+    }
+
+    float read_temperature() {
+        //14bit temp max time
+        uint16_t value = read_data(READ_TEMP, 55);
+        return value / 65536.0f * 175.72f - 46.85f;
+    }
+
+    float read_humidity() {
+        uint16_t value = read_data(READ_HUMIDITY, 18);
+        return value / 65536.0f * 125.0f - 6.0f;
+    }
+
+    uint16_t read_data(int command, int delay) {
+        int32_t res = i2c_smbus_write_byte(fd, command);
+
+        if (res < 0) {
+            throw i2c_error("Could not write to bus");
+        }
+
+        std::chrono::milliseconds max_reset(delay);
+        std::this_thread::sleep_for(max_reset);
+
+        uint8_t data[3];
+        if (read(fd, data, sizeof(data)) != sizeof(data)) {
+            throw i2c_error("Could not read from device");
+        }
+
+        if(!check_crc(data)) {
+            throw i2c_error("CRC error");
+        }
+
+        uint16_t value = data[0] << 8 | data[1];
+        value &= 0xFFFC;
+        return value;
+    }
+
+    template<size_t N>
+    bool check_crc(uint8_t (&raw)[N]) {
+        if (raw == nullptr || N != 3) {
+            throw i2c_error("Invalid input");
+        }
+        const uint32_t poly = 0x988000;
+        uint32_t data =  raw[0] << 16 | raw[1] << 8 | raw[2];
+
+        for (size_t i = 0; i < 24; i++) {
+            if (data & 0x800000U)
+                data ^= poly;
+            data <<= 1;
+        }
+
+        return !data;
+    }
+};
+
 } //namespace i2c
 
 #endif
