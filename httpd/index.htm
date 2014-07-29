@@ -187,7 +187,7 @@
 
         self.fake_data = function() {
 
-            var cur = moment().startOf("day");
+            var cur = moment().subtract('w', 1);
             var now = moment();
 
             var data = [];
@@ -198,7 +198,7 @@
                     humidity: 50.0 + Math.random() * 10
                 });
 
-                cur = cur.add('m', 10);
+                cur = cur.add('m', 1);
             }
 
             return data;
