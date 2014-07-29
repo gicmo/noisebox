@@ -46,6 +46,11 @@ target_link_libraries(nb-sensord noisebox ${ZMQ_LIBRARY} ${JSONCPP_LIBRARY})
 set(stored_SOURCES src/stored.cc)
 add_executable(nb-stored ${stored_SOURCES})
 target_link_libraries(nb-stored noisebox ${ZMQ_LIBRARY} ${JSONCPP_LIBRARY} ${BDB_LIBRARIES})
+
 set(htu21d_SOURCES tools/htu21d.cc)
 add_executable(htu21d ${htu21d_SOURCES})
 target_link_libraries(htu21d noisebox)
+
+set(mcp9808_SOURCES tools/mcp9808.cc)
+add_executable(mcp9808 ${mcp9808_SOURCES})
+target_link_libraries(mcp9808 noisebox)
