@@ -7,8 +7,13 @@
 #include <ctime>
 #include <string>
 #include <vector>
+#include <thread>
+#include <deque>
 #include <db_cxx.h>
+#include <zmq.h>
+
 #include "util.h"
+
 
 
 class store {
@@ -151,82 +156,47 @@ static long calc_timeout(time_t last_update, time_t interval)
     return static_cast<long>(secs_to_next_update);
 }
 
-static void service_thread(zmq::context_t &zmq_ctx, store &db)
-{
+namespace worker {
+
+static void data_cache(zmq::context_t &zmq_ctx) {
+    zmq::socket_t service(zmq_ctx, ZMQ_REP);
+    service.bind("inproc://data/current");
+
+    zmq::socket_t update_radio(zmq_ctx, ZMQ_SUB);
+    update_radio.connect("tcp://localhost:5556");
+    update_radio.setsockopt(ZMQ_SUBSCRIBE, "", 0);
+
     zmq::socket_t hangman(zmq_ctx, ZMQ_SUB);
     hangman.connect("inproc://hangman");
     hangman.setsockopt(ZMQ_SUBSCRIBE, "", 0);
 
-    zmq::socket_t service(zmq_ctx, ZMQ_REP);
-    service.bind("tcp://*:5557");
+    float temp = std::numeric_limits<float>::infinity();
+    float humidity = std::numeric_limits<float>::infinity();;
+    time_t last_update = 0;
 
     zmq_pollitem_t items[] = {
-            {static_cast<void *>(service), 0, ZMQ_POLLIN, 0 },
-            {static_cast<void *>(hangman), 0, ZMQ_POLLIN, 0 }
+            {static_cast<void *>(service), 0, ZMQ_POLLIN, 0},
+            {static_cast<void *>(update_radio), 0, ZMQ_POLLIN, 0},
+            {static_cast<void *>(hangman), 0, ZMQ_POLLIN, 0}
     };
 
-    float temp = 0.0;
-    float humidity = 0.0;
-
     while (1) {
-
-        bool ready = util::poll(items);
-        assert(ready);
-
+        bool ready = util::poll(items, -1);
 
         if (items[0].revents & ZMQ_POLLIN) {
+            //TODO: switch to binary proto for better speed
             zmq::message_t request;
-            service.recv (&request);
+            service.recv(&request);
 
             Json::Value js;
             js["temperature"] = temp;
             js["humidity"] = humidity;
             zmq::message_t msg = util::message_from_json(js);
             service.send(msg);
-
         }
 
         if (items[1].revents & ZMQ_POLLIN) {
-
-            assert(items[0].revents & ZMQ_POLLIN);
-            zmq::message_t msg;
-            hangman.recv(&msg);
-
-            //currently the only message we can get
-            //is to stop
-            return;
-        }
-
-
-    }
-}
-
-int main(int argc, char **argv)
-{
-    store db("data.db");
-
-    zmq::context_t zmq_ctx(1);
-
-    zmq::socket_t sensor_updates(zmq_ctx, ZMQ_SUB);
-    sensor_updates.connect("tcp://localhost:5556");
-    sensor_updates.setsockopt(ZMQ_SUBSCRIBE, "", 0);
-
-    zmq_pollitem_t items[] = {
-            {static_cast<void *>(sensor_updates), 0, ZMQ_POLLIN, 0 }
-    };
-
-    float temp = std::numeric_limits<float>::infinity();
-    float humidity = std::numeric_limits<float>::infinity();;
-    time_t last_update = 0;
-
-    const time_t store_interval = 60;
-
-    while(1) {
-        long timeout = calc_timeout(last_update, store_interval);
-        bool ready = util::poll(items, timeout);
-
-        if (ready) {
-            auto update = wire::sensor_update::receive(sensor_updates);
+            auto update = wire::sensor_update::receive(update_radio);
             if (update.type == 0x01) {
                 temp = update.value;
             } else if (update.type == 0x02) {
@@ -236,12 +206,173 @@ int main(int argc, char **argv)
             }
         }
 
-        time_t now = std::time(nullptr);
-        if (now - last_update > store_interval) {
-            db.put_data(static_cast<uint32_t>(now), temp, humidity);
-            last_update = now;
+        if (items[2].revents & ZMQ_POLLIN) {
+            zmq::message_t msg;
+            hangman.recv(&msg);
+
+            //currently the only message we can get
+            //is to stop
+            return;
         }
     }
+}
+
+static void slave(zmq::context_t &zmq_ctx, store &db)
+{
+    zmq::socket_t hangman(zmq_ctx, ZMQ_SUB);
+    hangman.connect("inproc://hangman");
+    hangman.setsockopt(ZMQ_SUBSCRIBE, "", 0);
+
+    zmq::socket_t service(zmq_ctx, ZMQ_REQ);
+    service.connect("inproc://data/store");
+
+    zmq::socket_t cache(zmq_ctx, ZMQ_REQ);
+    cache.connect("inproc://data/current");
+
+    zmq_pollitem_t items[] = {
+            {static_cast<void *>(hangman), 0, ZMQ_POLLIN, 0},
+            {static_cast<void *>(service), 0, ZMQ_POLLIN, 0}
+    };
+
+    //message broker that we are ready to work
+    util::send_string(service, "HELLO");
+
+    while (1) {
+
+        bool ready = util::poll(items);
+        assert(ready);
+
+        if (items[0].revents & ZMQ_POLLIN) {
+            zmq::message_t msg;
+            hangman.recv(&msg);
+            //currently the only message we can get is to stop
+            return;
+        }
+
+        if (items[1].revents & ZMQ_POLLIN) {
+
+            std::string c_address = util::receive_string(service);
+            util::receive_empty(service, true);
+            zmq::message_t msg;
+            service.recv(&msg);
+
+            //lets hope msg.data() is properly aligned
+            uint32_t req_type = *(static_cast<uint32_t *>(msg.data()));
+            if (req_type == 1) {
+                //get the current temp data
+                util::send_empty(cache);
+                zmq::message_t data_in;
+                cache.recv(&data_in);
+
+                //send it to the client now
+                util::send_string(service, c_address, true);
+                util::send_empty(service, true);
+
+                zmq::message_t data_out;
+                data_out.copy(&data_in);
+                service.send(data_out);
+
+            } else {
+                std::cerr << "[W] unkown request" << std::endl;
+            }
+        }
+
+    }
+
+}
+
+} //namespace worker
+
+
+
+int main(int argc, char **argv)
+{
+    std::cout << "noisebox store daemon" << std::endl;
+    store db("data.db");
+    zmq::context_t zmq_ctx(1);
+
+    zmq::socket_t frontend(zmq_ctx, ZMQ_ROUTER);
+    frontend.bind("tcp://*:5557");
+
+    zmq::socket_t backend(zmq_ctx, ZMQ_ROUTER);
+    backend.bind("inproc://data/store");
+
+    zmq::socket_t hangman(zmq_ctx, ZMQ_PUB);
+    hangman.bind("inproc://hangman");
+
+    std::deque<std::string> workers;
+
+    bool run_the_loop = true;
+
+    std::thread cache_thread(worker::data_cache, std::ref(zmq_ctx));
+    std::vector<std::thread> worker_threads;
+    for (int i = 0; i < 5; i++) {
+        worker_threads.emplace_back(worker::slave, std::ref(zmq_ctx), std::ref(db));
+    }
+
+    zmq_pollitem_t items[] = {
+            {static_cast<void *>(backend), 0, ZMQ_POLLIN, 0},
+            {static_cast<void *>(frontend), 0, ZMQ_POLLIN, 0}
+    };
+
+    while (run_the_loop) {
+
+        size_t n_workers = workers.size();
+        int n_items = 2;
+        if (n_workers <  1) {
+            n_items = 1;
+            //manually clear revents in this case
+            items[1].revents = 0;
+        }
+        int res = zmq_poll (items, n_items, -1);
+        assert(res > 0);
+
+        if (items[0].revents & ZMQ_POLLIN) {
+            std::string w_address = util::receive_string(backend);
+            util::receive_empty(backend, true);
+            std::string c_address = util::receive_string(backend);
+
+            workers.push_back(w_address);
+
+            if (c_address != "HELLO") {
+
+                util::receive_empty(backend, true);
+                zmq::message_t data_in;
+                backend.recv(&data_in);
+
+                util::send_string(frontend, c_address, true);
+                util::send_empty(frontend, true);
+
+                zmq::message_t data_out;
+                data_out.copy(&data_in);
+                frontend.send(data_out);
+
+            }
+        }
+
+        if (items[1].revents & ZMQ_POLLIN) {
+            std::string c_address = util::receive_string(frontend);
+            util::receive_empty(frontend, true);
+            zmq::message_t data_in;
+            frontend.recv(&data_in);
+
+            std::string w_address = workers.front();
+            workers.pop_front();
+
+            util::send_string(backend, w_address, true);
+            util::send_empty(backend, true);
+            util::send_string(backend, c_address, true);
+            util::send_empty(backend, true);
+
+            zmq::message_t data_out;
+            data_out.copy(&data_in);
+            backend.send(data_out);
+        }
+
+    }
+
+    zmq::message_t stop_msg;
+    hangman.send(stop_msg);
 
 
     return 0;

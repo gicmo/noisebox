@@ -213,7 +213,7 @@ int main(int argc, char **argv)
 
     std::thread mcp_thread(mcp_loop, std::ref(context), std::ref(mcp_dev));
     std::thread htu_thread(htu_loop, std::ref(context), std::ref(htu_dev));
-    std::thread dst_thread(datastore_loop, std::ref(context));
+    //std::thread dst_thread(datastore_loop, std::ref(context));
 
     //now the main runloop
     zmq_pollitem_t items[] = {
@@ -241,7 +241,7 @@ int main(int argc, char **argv)
 
     mcp_thread.join();
     htu_thread.join();
-    dst_thread.join();
+    //dst_thread.join();
 
     return 0;
 }

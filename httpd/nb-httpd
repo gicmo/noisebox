@@ -111,7 +111,7 @@ class ThreadingServer(ThreadingMixIn, HTTPServer):
     def load_initial_data(self):
         socket = self.zmq_ctx.socket(zmq.REQ)
         socket.connect("tcp://localhost:5557")
-        socket.send(b"GetSensorData")
+        socket.send_string(struct.pack('I', 1))
         init_data = socket.recv_json()
         return init_data
 
