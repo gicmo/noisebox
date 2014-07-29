@@ -21,6 +21,39 @@ zmq::message_t message_from_json(const Json::Value &js) {
     return msg;
 }
 
+std::string receive_string(zmq::socket_t &sock)
+{
+    zmq::message_t msg;
+    sock.recv(&msg, 0);
+    std::string result(static_cast<char *>(msg.data()), msg.size());
+    return result;
+}
+
+inline bool receive_empty(zmq::socket_t &sock, bool do_assert)
+{
+    std::string msg = receive_string(sock);
+    bool res = msg.size() == 0;
+
+    if (do_assert) {
+        assert(res);
+    }
+
+    return res;
+}
+
+inline void send_empty(zmq::socket_t &sock, bool more = false)
+{
+    int flags = more ? ZMQ_SNDMORE : 0;
+    sock.send(nullptr, 0, flags);
+}
+
+inline void send_string(zmq::socket_t &sock, const std::string &data, bool more = false)
+{
+    int flags = more ? ZMQ_SNDMORE : 0;
+    sock.send(static_cast<const void *>(data.c_str()), data.size(), flags);
+}
+
+
 inline void forward_msg(zmq::message_t &msg,
                         zmq::socket_t  &source,
                         zmq::socket_t  &sink) {
