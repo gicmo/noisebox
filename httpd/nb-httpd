@@ -11,6 +11,8 @@ from BaseHTTPServer import HTTPServer
 from SimpleHTTPServer import SimpleHTTPRequestHandler
 import signal
 import struct
+import time
+import datetime
 
 
 class RequestHandler(SimpleHTTPRequestHandler):
@@ -20,8 +22,11 @@ class RequestHandler(SimpleHTTPRequestHandler):
 
     def data(self):
         ipc = self.server.zmq_ctx.socket(zmq.REQ)
-        ipc.connect("inproc://data")
-        ipc.send(b"GetData")
+        ipc.connect("tcp://localhost:5557")
+        now = time.time()
+        delta = datetime.timedelta(weeks=-1)
+        t_start = now + delta.total_seconds()
+        ipc.send(struct.pack('III', 2, t_start, now))
         data = ipc.recv_json()
 
         self.send_response(200)
@@ -96,65 +101,11 @@ class ThreadingServer(ThreadingMixIn, HTTPServer):
 
         hangman = context.socket(zmq.PUB)
         hangman.bind("inproc://hangman")
-
-        mio_thread = threading.Thread(target=self.update_bg_thread)
-        mio_thread.start()
         self.hangman = hangman
-        self.mio_thread = mio_thread
 
     def stop(self):
-        print('Stopping mio thread')
         threading.Thread(target=self.shutdown).start()
         self.hangman.send(b"Stop")
-        self.mio_thread.join()
-
-    def load_initial_data(self):
-        socket = self.zmq_ctx.socket(zmq.REQ)
-        socket.connect("tcp://localhost:5557")
-        socket.send_string(struct.pack('I', 1))
-        init_data = socket.recv_json()
-        return init_data
-
-    def update_bg_thread(self):
-        zmq_ctx = self.zmq_ctx
-        data = self.load_initial_data()
-        print(data)
-        updates = zmq_ctx.socket(zmq.SUB)
-        updates.connect("tcp://localhost:5556")
-        updates.setsockopt_string(zmq.SUBSCRIBE, u'')
-
-        service = zmq_ctx.socket(zmq.REP)
-        service.bind("inproc://data")
-
-        hm = zmq_ctx.socket(zmq.SUB)
-        hm.connect("inproc://hangman")
-        hm.setsockopt_string(zmq.SUBSCRIBE, u'')
-
-        poller = zmq.Poller()
-        poller.register(updates, zmq.POLLIN)
-        poller.register(service, zmq.POLLIN)
-        poller.register(hm, zmq.POLLIN)
-
-        while True:
-            try:
-                ready = dict(poller.poll())
-            except KeyboardInterrupt:
-                break
-
-            if hm in ready:
-                break  # This is our stop signal
-
-            if updates in ready:
-                msg = updates.recv()
-                ut, _, _, value = struct.unpack('HHIf', msg)
-                if ut == 1:
-                    data['temperature'] = value
-                elif ut == 2:
-                    data['humidity'] = value
-
-            if service in ready:
-                req = service.recv_string()
-                service.send_json(data)
 
 if __name__ == "__main__":
     print("Noisebox monitor - HTTPd")

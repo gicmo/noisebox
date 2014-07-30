@@ -97,8 +97,17 @@
         self.load_data = function() {
             self.updating(true);
             var jqxhr = $.getJSON("data", function(data) {
-                self.update_from_data(data);
                 self.updating(false);
+                if (!('data' in data)) {
+                    return;
+                }
+
+                var x = data.data.map(function(o){ o.timestamp = new Date(o.timestamp * 1000); console.log(o); return o;});
+                console.log(x);
+
+                self.data = x; //data.data.map(function(o){o.timestamp = new Date(o.timestamp * 1000); return o; });
+
+                self.graph.update();
             });
 
             jqxhr.fail(function(jqxhr, textStatus, error) {
@@ -149,7 +158,9 @@
 
                 var now = new Date();
                 self.last_update(now.toDateString() + " @ " + now.toTimeString());
-                self.data.push({timestamp: now, temp: self.temperature(), humidity: self.humidity()});
+                self.data.push({timestamp: now,
+                                temp: parseFloat(self.temperature()),
+                                humidity: parseFloat(self.humidity())});
 
                 self.graph.update();
 
