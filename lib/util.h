@@ -29,6 +29,13 @@ std::string receive_string(zmq::socket_t &sock)
     return result;
 }
 
+inline bool receive_json(zmq::socket_t &sock, Json::Value &js)
+{
+    std::string data = receive_string(sock);
+    Json::Reader reader;
+    return reader.parse(data, js);
+}
+
 inline bool receive_empty(zmq::socket_t &sock, bool do_assert)
 {
     std::string msg = receive_string(sock);
