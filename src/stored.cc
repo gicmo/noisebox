@@ -9,6 +9,11 @@
 #include <vector>
 #include <thread>
 #include <deque>
+#include <cmath>
+#include <atomic>
+
+#include <signal.h>
+
 #include <db_cxx.h>
 #include <zmq.h>
 
@@ -158,6 +163,65 @@ static long calc_timeout(time_t last_update, time_t interval)
 
 namespace worker {
 
+static void db_writer(zmq::context_t &zmq_ctx, store &db)
+{
+    zmq::socket_t hangman(zmq_ctx, ZMQ_SUB);
+    hangman.connect("inproc://hangman");
+    hangman.setsockopt(ZMQ_SUBSCRIBE, "", 0);
+
+    zmq::socket_t cache(zmq_ctx, ZMQ_REQ);
+    cache.connect("inproc://data/current");
+
+    zmq::socket_t service(zmq_ctx, ZMQ_REP);
+    service.bind("inproc://data/control");
+
+    zmq_pollitem_t items[] = {
+            {static_cast<void *>(service), 0, ZMQ_POLLIN, 0},
+            {static_cast<void *>(hangman), 0, ZMQ_POLLIN, 0}
+    };
+
+    time_t last_write = 0;
+    //bool should_record = true;
+    const time_t write_interval = 60;
+
+    while (1) {
+        long timeout = calc_timeout(last_write, write_interval);
+        bool ready = util::poll(items, timeout);
+
+        if (items[0].revents & ZMQ_POLLIN) {
+            //implement control functionality here
+            std::cerr << "Warning, got unhandled control message" << std::endl;
+        }
+
+        if (items[1].revents & ZMQ_POLLIN) {
+            zmq::message_t msg;
+            hangman.recv(&msg);
+            //currently the only message we can get is to stop
+            return;
+        }
+
+        time_t now = std::time(nullptr);
+        if (now - last_write > write_interval) {
+
+            //get the current temp data
+            util::send_empty(cache);
+            Json::Value js;
+
+            bool res = util::receive_json(cache, js);
+            assert(res);
+
+            float temp = js["temperature"].asFloat();
+            float humidity = js["humidity"].asFloat();
+
+            db.put_data(static_cast<uint32_t>(now), temp, humidity);
+
+            last_write = now;
+        }
+
+    }
+
+}
+
 static void data_cache(zmq::context_t &zmq_ctx) {
     zmq::socket_t service(zmq_ctx, ZMQ_REP);
     service.bind("inproc://data/current");
@@ -172,7 +236,6 @@ static void data_cache(zmq::context_t &zmq_ctx) {
 
     float temp = std::numeric_limits<float>::infinity();
     float humidity = std::numeric_limits<float>::infinity();;
-    time_t last_update = 0;
 
     zmq_pollitem_t items[] = {
             {static_cast<void *>(service), 0, ZMQ_POLLIN, 0},
@@ -189,8 +252,10 @@ static void data_cache(zmq::context_t &zmq_ctx) {
             service.recv(&request);
 
             Json::Value js;
-            js["temperature"] = temp;
-            js["humidity"] = humidity;
+            if (std::isfinite(temp) && std::isfinite(humidity)) {
+                js["temperature"] = temp;
+                js["humidity"] = humidity;
+            }
             zmq::message_t msg = util::message_from_json(js);
             service.send(msg);
         }
@@ -257,8 +322,8 @@ static void slave(zmq::context_t &zmq_ctx, store &db)
             service.recv(&msg);
 
             //lets hope msg.data() is properly aligned
-            uint32_t req_type = *(static_cast<uint32_t *>(msg.data()));
-            if (req_type == 1) {
+            uint32_t *req_type = static_cast<uint32_t *>(msg.data());
+            if (*req_type == 1) {
                 //get the current temp data
                 util::send_empty(cache);
                 zmq::message_t data_in;
@@ -272,6 +337,32 @@ static void slave(zmq::context_t &zmq_ctx, store &db)
                 data_out.copy(&data_in);
                 service.send(data_out);
 
+            } else if (*req_type == 2) {
+
+                uint32_t t_start = *++req_type;
+                uint32_t t_end   = *++req_type;
+                std::cout << "S: " << t_start << " " << "E: " << t_end << std::endl;
+                const auto records = db.find_data(t_start, t_end);
+                std::cerr << "Got " << records.size() << "records" << std::endl;
+                Json::Value array;
+                for (const auto &record : records) {
+                    Json::Value data_point;
+                    data_point["timestamp"] = record.timestamp;
+                    data_point["humidity"] = record.humidity();
+                    data_point["temp"] = record.temperature();
+                    array.append(data_point);
+                }
+
+                Json::Value js;
+                js["data"] = array;
+
+                zmq::message_t reply = util::message_from_json(js);
+
+                //send it to the client now
+                util::send_string(service, c_address, true);
+                util::send_empty(service, true);
+                service.send(reply);
+
             } else {
                 std::cerr << "[W] unkown request" << std::endl;
             }
@@ -283,6 +374,26 @@ static void slave(zmq::context_t &zmq_ctx, store &db)
 
 } //namespace worker
 
+
+static std::atomic<bool> run_the_loop;
+
+static void stop_signal_handler (int signal_value)
+{
+    std::cout << "Got the stop signal. Stopping." << std::endl;
+    run_the_loop = false;
+}
+
+static void init_signals()
+{
+    struct sigaction sig_action;
+
+    sig_action.sa_handler = stop_signal_handler;
+    sig_action.sa_flags = 0;
+    sigemptyset (&sig_action.sa_mask);
+
+    sigaction (SIGINT, &sig_action, NULL);
+    sigaction (SIGTERM, &sig_action, NULL);
+}
 
 
 int main(int argc, char **argv)
@@ -302,18 +413,47 @@ int main(int argc, char **argv)
 
     std::deque<std::string> workers;
 
-    bool run_the_loop = true;
-
     std::thread cache_thread(worker::data_cache, std::ref(zmq_ctx));
+
+    zmq::socket_t cache(zmq_ctx, ZMQ_REQ);
+    bool cache_is_ready = false;
+    do {
+        int res = zmq_connect (static_cast<void *>(cache), "inproc://data/current");
+        cache_is_ready = !res;
+    } while(!cache_is_ready);
+
+    cache_is_ready = false;
+    do {
+        //get the current temp data
+        util::send_empty(cache);
+        Json::Value js;
+
+        bool res = util::receive_json(cache, js);
+        assert(res);
+
+        cache_is_ready = js.isMember("temperature") && js.isMember("humidity");
+
+        //lets wait for a second
+        std::chrono::milliseconds dura(1000);
+        std::this_thread::sleep_for(dura);
+
+    } while (!cache_is_ready);
+    std::cout << "cache is ready" << std::endl;
+
+    std::thread db_thread(worker::db_writer, std::ref(zmq_ctx), std::ref(db));
     std::vector<std::thread> worker_threads;
     for (int i = 0; i < 5; i++) {
         worker_threads.emplace_back(worker::slave, std::ref(zmq_ctx), std::ref(db));
     }
 
+    init_signals();
+
     zmq_pollitem_t items[] = {
             {static_cast<void *>(backend), 0, ZMQ_POLLIN, 0},
             {static_cast<void *>(frontend), 0, ZMQ_POLLIN, 0}
     };
+
+    run_the_loop = true;
 
     while (run_the_loop) {
 
@@ -325,7 +465,9 @@ int main(int argc, char **argv)
             items[1].revents = 0;
         }
         int res = zmq_poll (items, n_items, -1);
-        assert(res > 0);
+        if (res < 1) {
+            break;
+        }
 
         if (items[0].revents & ZMQ_POLLIN) {
             std::string w_address = util::receive_string(backend);
@@ -371,9 +513,16 @@ int main(int argc, char **argv)
 
     }
 
+    std::cerr << "Shutting down" << std::endl;
     zmq::message_t stop_msg;
     hangman.send(stop_msg);
 
+    cache_thread.join();
+    db_thread.join();
+
+    for(auto &wth : worker_threads) {
+        wth.join();
+    }
 
     return 0;
 }
