@@ -18,9 +18,11 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake")
 find_package(ZMQ REQUIRED)
 find_package(JsonCpp REQUIRED)
 find_package(BerkeleyDB REQUIRED)
+find_package(Libdaemon REQUIRED)
 
 include_directories(${JSONCPP_INCLUDE_DIR}
-                    ${ZMQ_INCLUDE_DIR})
+                    ${ZMQ_INCLUDE_DIR}
+                    ${LIBDAEMON_INCLUDE_DIRS})
 
 # nb c++ lib
 file(GLOB_RECURSE noisebox_SOURCES lib/*.cc)
@@ -28,7 +30,7 @@ file(GLOB_RECURSE noisebox_INCLUDES lib/*.h*)
 include_directories(lib)
 
 add_library(noisebox SHARED ${noisebox_INCLUDES} ${noisebox_SOURCES})
-target_link_libraries(noisebox ${ZMQ_LIBRARY} ${JSONCPP_LIBRARY})
+target_link_libraries(noisebox ${ZMQ_LIBRARY} ${JSONCPP_LIBRARY} ${LIBDAEMON_LIBRARIES})
 set_target_properties(noisebox PROPERTIES
 		              VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}
 		              SOVERSION ${VERSION_ABI})
@@ -54,3 +56,7 @@ target_link_libraries(htu21d noisebox)
 set(mcp9808_SOURCES tools/mcp9808.cc)
 add_executable(mcp9808 ${mcp9808_SOURCES})
 target_link_libraries(mcp9808 noisebox)
+
+set(daemon_SOURCES tools/daemon_test.cc)
+add_executable(daemon_test ${daemon_SOURCES})
+target_link_libraries(daemon_test noisebox)
