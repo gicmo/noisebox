@@ -27,6 +27,7 @@
 
 
 #include <cinttypes>
+#include <sys/ioctl.h>
 
 typedef uint8_t  __u8;
 typedef uint16_t __u16;
