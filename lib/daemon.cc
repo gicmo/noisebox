@@ -16,12 +16,12 @@ daemon::daemon(char *argv0)
 {
         if (daemon_reset_sigs(-1) < 0) {
             daemon_log(LOG_ERR, "Failed to reset all signal handlers: %s", strerror(errno));
-            throw std::runtime_error("Failed to reset all signal handlers");
+            ::exit(-1);
         }
 
         if (daemon_unblock_sigs(-1) < 0) {
             daemon_log(LOG_ERR, "Failed to unblock all signals: %s", strerror(errno));
-            throw std::runtime_error("Failed to unblock all signals");
+            ::exit(-2);
         }
 
         daemon_pid_file_ident = daemon_log_ident = daemon_ident_from_argv0(argv0);
@@ -35,7 +35,7 @@ bool daemon::daemonize()
     if (daemon_retval_init()) {
         std::string err_msg = "Failed to create pipe";
         daemon_log(LOG_ERR, err_msg.c_str());
-        throw std::runtime_error(err_msg);
+        ::exit(-3);
     }
 
     pid = daemon_fork();
@@ -43,7 +43,7 @@ bool daemon::daemonize()
     if (pid < 0) {
         //error
         daemon_retval_done();
-        throw std::runtime_error("Could not fork");
+        ::exit(-4);
 
     } else if (pid) {
         //parent
@@ -53,11 +53,11 @@ bool daemon::daemonize()
         if (ret < 0) {
             std::string err_msg = "Timeout waiting for daemon";
             daemon_log(LOG_ERR, err_msg.c_str());
-            throw std::runtime_error(err_msg);
+            ::exit(-4);
         } else if (ret > 0) {
             std::string err_msg = "Error starting daemon";
             daemon_log(LOG_ERR, err_msg.c_str());
-            throw std::runtime_error(err_msg);
+            ::exit(ret);
         }
 
         ::exit(ret);
