@@ -33,8 +33,7 @@ daemon::daemon(char *argv0)
 bool daemon::daemonize()
 {
     if (daemon_retval_init()) {
-        std::string err_msg = "Failed to create pipe";
-        daemon_log(LOG_ERR, err_msg.c_str());
+        daemon_log(LOG_ERR, "Failed to create pipe");
         ::exit(-3);
     }
 
@@ -51,12 +50,10 @@ bool daemon::daemonize()
         int ret = daemon_retval_wait(20); //seconds
 
         if (ret < 0) {
-            std::string err_msg = "Timeout waiting for daemon";
-            daemon_log(LOG_ERR, err_msg.c_str());
+            daemon_log(LOG_ERR, "Timeout waiting for daemon");
             ::exit(-4);
         } else if (ret > 0) {
-            std::string err_msg = "Error starting daemon";
-            daemon_log(LOG_ERR, err_msg.c_str());
+            daemon_log(LOG_ERR, "Error starting the daemon: %d", ret);
             ::exit(ret);
         }
 
