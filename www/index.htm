@@ -96,7 +96,7 @@
         
         self.load_data = function() {
             self.updating(true);
-            var jqxhr = $.getJSON("data", function(data) {
+            var jqxhr = $.getJSON("api/data", function(data) {
                 self.updating(false);
                 if (!('data' in data)) {
                     return;
@@ -178,7 +178,7 @@
 
             if (self.sse_support()) {
 
-                self.event_source = new EventSource("subscribe");
+                self.event_source = new EventSource("api/subscribe");
                 self.event_source.onmessage = function(e) {
                     if (!self.updating()) {
                         self.updating('sse');
