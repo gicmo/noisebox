@@ -90,11 +90,11 @@ i.color-gray {
     stroke-width: 1.5px;
 }
 
-.data-temperature {
+.data-humidity {
     stroke: steelblue;
 }
 
-.data-humidity {
+.data-temperature {
     stroke: #ff4955;
 }
 
