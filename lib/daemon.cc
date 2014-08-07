@@ -1,6 +1,8 @@
 
 #include "daemon.h"
 
+#include <libdaemon/daemon.h>
+
 #include <signal.h>
 #include <errno.h>
 #include <string.h>
@@ -13,6 +15,9 @@
 #include <signal.h>
 #include <poll.h>
 #include <unistd.h>
+
+#include <util.h>
+
 
 namespace unix {
 

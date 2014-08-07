@@ -7,10 +7,7 @@
 #include <thread>
 
 #include <sys/unistd.h>
-#include <libdaemon/daemon.h>
 #include <zmq.hpp>
-
-#include <util.h>
 
 namespace unix {
 
@@ -55,10 +52,6 @@ public:
 
     ~daemon() {
         exit();
-    }
-
-    int signal_fd() {
-        return daemon_signal_fd();
     }
 
     void log(int level, const char *format, ...);
