@@ -68,6 +68,7 @@ i.color-gray {
 
 .graph {
     font: 10px sans-serif;
+    padding-bottom: 10px;
 }
 
 .axis path,
