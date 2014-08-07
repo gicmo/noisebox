@@ -50,14 +50,17 @@ public:
     };
 
     store(std::string path)
-            : db(nullptr, 0) {
+            : db_env(0), db(&db_env, 0) {
 
         uint32_t open_flags = DB_CREATE | DB_THREAD;
+        uint32_t env_flags = DB_CREATE | DB_THREAD | DB_INIT_MPOOL | DB_INIT_LOCK | DB_INIT_LOG;
 
         try {
+            db_env.open(path.c_str(), env_flags, 0);
+
             db.set_bt_compare(store::compare_epoch);
             db.set_flags(DB_RECNUM);
-            db.open(nullptr, path.c_str(), nullptr, DB_BTREE, open_flags, 0);
+            db.open(nullptr, "data.db", nullptr, DB_BTREE, open_flags, 0);
             is_open = true;
             db.set_error_stream(&std::cerr);
 
@@ -149,6 +152,7 @@ private:
     }
 
 private:
+    DbEnv db_env;
     Db db;
     bool is_open;
 };
