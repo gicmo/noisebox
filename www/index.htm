@@ -174,7 +174,7 @@
 
         self.initialize = function() {
             self.load_data();
-            self.make_graph(600, 100);
+            self.make_graph(640, 150);
 
             if (self.sse_support()) {
 
@@ -216,7 +216,7 @@
         };
 
         self.make_graph = function(width, height) {
-            var margin = {top: 20, right: 50, bottom: 30, left: 50};
+            var margin = {top: 20, right: 30, bottom: 30, left: 50};
 
             var x = d3.time.scale()
                     .range([0, width])
