@@ -3,38 +3,41 @@
 from time import sleep
 import sys
 import zmq
-import json
+import daemon
 import struct
 from Adafruit_CharLCDPlate import Adafruit_CharLCDPlate
 
-lcd = Adafruit_CharLCDPlate()
 
-lcd.begin(16, 2)
-lcd.clear()
-lcd.backlight(lcd.ON | lcd.RED)
-lcd.message("Noisebox Monitor")
-sleep(1)
+def main():
+    lcd = Adafruit_CharLCDPlate()
 
-context = zmq.Context()
-socket = context.socket(zmq.SUB)
-
-print("Noisebox monitor - LCD")
-sys.stdout.write("Waiting for monitor daemon...")
-sys.stdout.flush()
-socket.connect("tcp://localhost:5556")
-socket.setsockopt_string(zmq.SUBSCRIBE, u"")
-
-temp = 0.0
-humidity = 0.0
-while True:
-    msg = socket.recv()
-    ut, _, _, val = struct.unpack('HHIf', msg)
-    if ut == 1:
-        temp = val
-    elif ut == 2:
-        humidity = val
+    lcd.begin(16, 2)
     lcd.clear()
-    sys.stdout.write("\r  T: %3.5f H: %3.5f %s" % (temp, humidity, " "*3))
-    sys.stdout.flush()
-    lcd.message("T: %3.2f\nH: %3.2f" % (temp, humidity))
+    lcd.backlight(lcd.ON | lcd.RED)
+    lcd.message("Noisebox Monitor")
+    sleep(1)
 
+    context = zmq.Context()
+    socket = context.socket(zmq.SUB)
+
+    print("Noisebox monitor - LCD")
+    sys.stdout.write("Waiting for monitor daemon...")
+    sys.stdout.flush()
+    socket.connect("tcp://localhost:5556")
+    socket.setsockopt_string(zmq.SUBSCRIBE, u"")
+
+    temp = 0.0
+    humidity = 0.0
+    while True:
+        msg = socket.recv()
+        ut, _, _, val = struct.unpack('HHIf', msg)
+        if ut == 1:
+            temp = val
+        elif ut == 2:
+            humidity = val
+        lcd.clear()
+        lcd.message("T: %3.2f\nH: %3.2f" % (temp, humidity))
+
+if __name__ == '__main__':
+    with daemon.DaemonContext():
+        main()
