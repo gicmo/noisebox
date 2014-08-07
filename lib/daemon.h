@@ -4,17 +4,44 @@
 #include <string>
 #include <stdexcept>
 #include <memory>
+#include <thread>
 
 #include <sys/unistd.h>
-
-
 #include <libdaemon/daemon.h>
 #include <zmq.hpp>
 
+#include <util.h>
+
 namespace unix {
+
+class signal_radio {
+public:
+    signal_radio(zmq::context_t &zmq_ctx, int fd);
+    ~signal_radio();
+
+    zmq::socket_t subscribe();
+
+    static constexpr const char* address() {
+        return "inproc://signals";
+    }
+
+private:
+    static constexpr const char* pair_address() {
+        return "inproc://signals/pairing";
+    }
+
+    void thread_loop(int fd);
+
+private:
+    zmq::context_t &zmq_ctx;
+    std::thread     bg_thread;
+};
+
+
 
 class daemon {
 public:
+    class ctx;
 
     daemon(char *);
 
@@ -22,15 +49,7 @@ public:
         return pid >= 0;
     }
 
-    bool daemonize();
-
-    zmq::context_t& zmq_ctx() {
-        return *zmq_ctx_ptr;
-    }
-
-    zmq::socket_t& zmq_signal() {
-        return *zmq_signal_ptr;
-    }
+    ctx& daemonize();
 
     void exit();
 
@@ -42,19 +61,36 @@ public:
         return daemon_signal_fd();
     }
 
-    void handle_signal();
+    void log(int level, const char *format, ...);
 
-    zmq::socket_t signal_client();
+    void err(const char *format, ...);
+    void info(const char *format, ...);
 
-    bool run() {
-        return !quit;
-    }
+
+public:
+    class ctx {
+
+    public:
+        zmq::context_t& zmq() {
+            return zmq_ctx;
+        }
+
+        signal_radio &sradio() {
+            return signal_station;
+        }
+
+    private:
+
+        ctx(int fd) : zmq_ctx(1), signal_station(zmq_ctx, fd) { }
+
+        friend class daemon;
+        zmq::context_t zmq_ctx;
+        signal_radio   signal_station;
+    };
 
 private:
     pid_t pid;
-    std::unique_ptr<zmq::context_t> zmq_ctx_ptr;
-    std::unique_ptr<zmq::socket_t> zmq_signal_ptr;
-    bool quit;
+    std::unique_ptr<ctx> context;
 };
 
 }
