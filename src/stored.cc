@@ -18,7 +18,7 @@
 #include <zmq.h>
 
 #include "util.h"
-
+#include "daemon.h"
 
 
 class store {
@@ -167,11 +167,10 @@ static long calc_timeout(time_t last_update, time_t interval)
 
 namespace worker {
 
-static void db_writer(zmq::context_t &zmq_ctx, store &db)
+static void db_writer(unix::daemon::ctx &ctx, store &db)
 {
-    zmq::socket_t hangman(zmq_ctx, ZMQ_SUB);
-    hangman.connect("inproc://hangman");
-    hangman.setsockopt(ZMQ_SUBSCRIBE, "", 0);
+    zmq::context_t &zmq_ctx = ctx.zmq();
+    zmq::socket_t hangman = ctx.sradio().subscribe();
 
     zmq::socket_t cache(zmq_ctx, ZMQ_REQ);
     cache.connect("inproc://data/current");
@@ -226,17 +225,17 @@ static void db_writer(zmq::context_t &zmq_ctx, store &db)
 
 }
 
-static void data_cache(zmq::context_t &zmq_ctx) {
+static void data_cache(unix::daemon::ctx &ctx) {
+
+    zmq::context_t &zmq_ctx = ctx.zmq();
+    zmq::socket_t hangman = ctx.sradio().subscribe();
+
     zmq::socket_t service(zmq_ctx, ZMQ_REP);
     service.bind("inproc://data/current");
 
     zmq::socket_t update_radio(zmq_ctx, ZMQ_SUB);
     update_radio.connect("tcp://localhost:5556");
     update_radio.setsockopt(ZMQ_SUBSCRIBE, "", 0);
-
-    zmq::socket_t hangman(zmq_ctx, ZMQ_SUB);
-    hangman.connect("inproc://hangman");
-    hangman.setsockopt(ZMQ_SUBSCRIBE, "", 0);
 
     float temp = std::numeric_limits<float>::infinity();
     float humidity = std::numeric_limits<float>::infinity();;
@@ -286,11 +285,10 @@ static void data_cache(zmq::context_t &zmq_ctx) {
     }
 }
 
-static void slave(zmq::context_t &zmq_ctx, store &db)
+static void slave(unix::daemon::ctx &ctx, store &db)
 {
-    zmq::socket_t hangman(zmq_ctx, ZMQ_SUB);
-    hangman.connect("inproc://hangman");
-    hangman.setsockopt(ZMQ_SUBSCRIBE, "", 0);
+    zmq::context_t &zmq_ctx = ctx.zmq();
+    zmq::socket_t hangman = ctx.sradio().subscribe();
 
     zmq::socket_t service(zmq_ctx, ZMQ_REQ);
     service.connect("inproc://data/store");
@@ -379,32 +377,19 @@ static void slave(zmq::context_t &zmq_ctx, store &db)
 } //namespace worker
 
 
-static std::atomic<bool> run_the_loop;
-
-static void stop_signal_handler (int signal_value)
-{
-    std::cout << "Got the stop signal. Stopping." << std::endl;
-    run_the_loop = false;
-}
-
-static void init_signals()
-{
-    struct sigaction sig_action;
-
-    sig_action.sa_handler = stop_signal_handler;
-    sig_action.sa_flags = 0;
-    sigemptyset (&sig_action.sa_mask);
-
-    sigaction (SIGINT, &sig_action, NULL);
-    sigaction (SIGTERM, &sig_action, NULL);
-}
-
-
 int main(int argc, char **argv)
 {
-    std::cout << "noisebox store daemon" << std::endl;
-    store db("data.db");
-    zmq::context_t zmq_ctx(1);
+    unix::daemon daemon{argv[0]};
+    unix::daemon::ctx &ctx = daemon.daemonize();
+
+    daemon.info("noisebox store daemon running");
+
+    std::string db_path = "/var/lib/noisebox";
+    daemon.info("writing to %s", db_path.c_str());
+
+    store db(db_path);
+
+    zmq::context_t &zmq_ctx = ctx.zmq();
 
     zmq::socket_t frontend(zmq_ctx, ZMQ_ROUTER);
     frontend.bind("tcp://*:5557");
@@ -412,12 +397,9 @@ int main(int argc, char **argv)
     zmq::socket_t backend(zmq_ctx, ZMQ_ROUTER);
     backend.bind("inproc://data/store");
 
-    zmq::socket_t hangman(zmq_ctx, ZMQ_PUB);
-    hangman.bind("inproc://hangman");
-
     std::deque<std::string> workers;
 
-    std::thread cache_thread(worker::data_cache, std::ref(zmq_ctx));
+    std::thread cache_thread(worker::data_cache, std::ref(ctx));
 
     zmq::socket_t cache(zmq_ctx, ZMQ_REQ);
     bool cache_is_ready = false;
@@ -442,38 +424,45 @@ int main(int argc, char **argv)
         std::this_thread::sleep_for(dura);
 
     } while (!cache_is_ready);
-    std::cout << "cache is ready" << std::endl;
+    daemon.info("cache is ready");
 
-    std::thread db_thread(worker::db_writer, std::ref(zmq_ctx), std::ref(db));
+    std::thread db_thread(worker::db_writer, std::ref(ctx), std::ref(db));
     std::vector<std::thread> worker_threads;
     for (int i = 0; i < 5; i++) {
-        worker_threads.emplace_back(worker::slave, std::ref(zmq_ctx), std::ref(db));
+        worker_threads.emplace_back(worker::slave, std::ref(ctx), std::ref(db));
     }
 
-    init_signals();
+    zmq::socket_t hangman = ctx.sradio().subscribe();
 
     zmq_pollitem_t items[] = {
+            {static_cast<void *>(hangman), 0, ZMQ_POLLIN, 0},
             {static_cast<void *>(backend), 0, ZMQ_POLLIN, 0},
             {static_cast<void *>(frontend), 0, ZMQ_POLLIN, 0}
     };
 
-    run_the_loop = true;
-
-    while (run_the_loop) {
+    while (true) {
 
         size_t n_workers = workers.size();
-        int n_items = 2;
+        int n_items = 3;
         if (n_workers <  1) {
-            n_items = 1;
+            n_items = 2;
             //manually clear revents in this case
-            items[1].revents = 0;
+            items[2].revents = 0;
         }
         int res = zmq_poll (items, n_items, -1);
         if (res < 1) {
+            if (errno == EINTR) {
+                continue;
+            }
             break;
         }
 
         if (items[0].revents & ZMQ_POLLIN) {
+            //hangman/signal socket
+            break;
+        }
+
+        if (items[1].revents & ZMQ_POLLIN) {
             std::string w_address = util::receive_string(backend);
             util::receive_empty(backend, true);
             std::string c_address = util::receive_string(backend);
@@ -496,7 +485,7 @@ int main(int argc, char **argv)
             }
         }
 
-        if (items[1].revents & ZMQ_POLLIN) {
+        if (items[2].revents & ZMQ_POLLIN) {
             std::string c_address = util::receive_string(frontend);
             util::receive_empty(frontend, true);
             zmq::message_t data_in;
@@ -516,10 +505,6 @@ int main(int argc, char **argv)
         }
 
     }
-
-    std::cerr << "Shutting down" << std::endl;
-    zmq::message_t stop_msg;
-    hangman.send(stop_msg);
 
     cache_thread.join();
     db_thread.join();
