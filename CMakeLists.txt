@@ -60,3 +60,18 @@ target_link_libraries(mcp9808 noisebox)
 set(daemon_SOURCES tools/daemon_test.cc)
 add_executable(daemon_test ${daemon_SOURCES})
 target_link_libraries(daemon_test noisebox)
+
+# install
+
+install(TARGETS htu21d mcp9808 noisebox
+        RUNTIME DESTINATION bin
+        LIBRARY DESTINATION lib
+        ARCHIVE DESTINATION lib
+)
+
+install(TARGETS nb-sensord nb-stored
+        RUNTIME DESTINATION sbin
+)
+
+install(FILES ${CMAKE_SOURCE_DIR}/tools/nb-graph.py ${CMAKE_SOURCE_DIR}/lcd/nb-lcd
+        DESTINATION bin)
