@@ -5,11 +5,11 @@ import sys
 import zmq
 import daemon
 import struct
-from Adafruit_CharLCDPlate import Adafruit_CharLCDPlate
+from lcd import Adafruit_CharLCDPlate as aflcd
 
 
 def main():
-    lcd = Adafruit_CharLCDPlate()
+    lcd = aflcd.Adafruit_CharLCDPlate()
 
     lcd.begin(16, 2)
     lcd.clear()
@@ -21,7 +21,6 @@ def main():
     socket = context.socket(zmq.SUB)
 
     print("Noisebox monitor - LCD")
-    sys.stdout.write("Waiting for monitor daemon...")
     sys.stdout.flush()
     socket.connect("tcp://localhost:5556")
     socket.setsockopt_string(zmq.SUBSCRIBE, u"")
