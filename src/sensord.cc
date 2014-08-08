@@ -111,15 +111,13 @@ int main(int argc, char **argv)
     i2c::htu21d  htu_dev = i2c::htu21d::open(1, 0x40);
 
     zmq::context_t &context = ctx.zmq();
-
-    zmq::socket_t hangman(context, ZMQ_PUB);
-    hangman.bind("inproc://hangman");
-
     zmq::socket_t collector(context, ZMQ_XSUB);
     collector.bind("inproc://sensors");
 
     zmq::socket_t emitter(context, ZMQ_XPUB);
     emitter.bind("tcp://*:5556");
+
+    zmq::socket_t hangman = ctx.sradio().subscribe();
 
     std::thread mcp_thread(mcp_loop, std::ref(ctx), std::ref(mcp_dev));
     std::thread htu_thread(htu_loop, std::ref(ctx), std::ref(htu_dev));
@@ -130,7 +128,6 @@ int main(int argc, char **argv)
             {static_cast<void *>(collector), 0, ZMQ_POLLIN, 0 },
             {static_cast<void *>(emitter), 0, ZMQ_POLLIN, 0 }
     };
-
 
     while (true) {
         zmq::message_t msg;
@@ -149,9 +146,6 @@ int main(int argc, char **argv)
             util::forward_msg(msg, emitter, collector);
         }
     }
-
-    zmq::message_t stop_msg;
-    hangman.send(stop_msg);
 
     mcp_thread.join();
     htu_thread.join();
