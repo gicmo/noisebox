@@ -56,6 +56,7 @@ class NBGraph(QtGui.QMainWindow):
 
         pw = pg.PlotWidget(name='Population Code activation',
                            axisItems={'bottom': TimeAxisItem(orientation='bottom')})
+
         pw.addLegend()
 
         cw.setLayout(layout)
@@ -67,21 +68,27 @@ class NBGraph(QtGui.QMainWindow):
         pw.addItem(self._temp)
         pw.addItem(self._hudt)
 
-        data = np.array(map(lambda x: (x['timestamp'], x['temp'], x['humidity']), self.get_data())).T
-        print (data.shape)
-        self._temp.setData(data[0, :], data[1, :], pen='#ff325b')
-        self._hudt.setData(data[0, :], data[2, :], pen='#3182fc')
-        self.data = data
+        self.data = self.get_data()
+        self.plot_data(self.data)
 
-        t = QtCore.QTimer()
-        t.timeout.connect(self.get_live_data)
-        t.start(150)
 
-        self._ld_timer = t
         self._sub = socket
         poller = zmq.Poller()
         poller.register(self._sub, zmq.POLLIN)
         self._poller = poller
+        t = QtCore.QTimer()
+        t.timeout.connect(self.get_live_data)
+        t.start(150)
+        self._ld_timer = t
+
+        t = QtCore.QTimer()
+        t.timeout.connect(self.update_data)
+        t.start(1000*5)
+        self._ud_timer = t
+
+    def plot_data(self, data):
+        self._temp.setData(data[0, :], data[1, :], pen='#ff325b')
+        self._hudt.setData(data[0, :], data[2, :], pen='#3182fc')
 
     def get_live_data(self):
         ready = dict(self._poller.poll(50))
@@ -93,16 +100,32 @@ class NBGraph(QtGui.QMainWindow):
             elif ut == 2:
                 self._lbl_hudt.setText('%3.2f %%' % val)
 
-    def get_data(self):
+    def get_data(self, t_start=None):
         context = self.zmq_ctx
         ipc = context.socket(zmq.REQ)
         ipc.connect("tcp://noisebox.neuro.bzm:5557")
         now = time.time()
-        delta = datetime.timedelta(weeks=-1)
-        t_start = now + delta.total_seconds()
+        if t_start is None:
+            delta = datetime.timedelta(weeks=-1)
+            t_start = now + delta.total_seconds()
         ipc.send(struct.pack('III', 2, t_start, now))
         js_data = ipc.recv_json()
-        return js_data['data']
+        the_data = js_data['data']
+        if the_data is None:
+            return None
+        data = np.array(map(lambda x: (x['timestamp'], x['temp'], x['humidity']), the_data)).T
+        return data
+
+    def update_data(self):
+        data = self.data
+        s = data.shape
+        last_update = data[0, s[1]-1]
+        new_data = self.get_data(last_update+1)
+        if new_data is None or not len(new_data):
+            return
+        data = np.concatenate((data, new_data), axis=1)
+        self.data = data
+        self.plot_data(self.data)
 
 
 if __name__ == '__main__':
