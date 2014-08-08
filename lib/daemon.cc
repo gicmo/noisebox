@@ -114,11 +114,19 @@ daemon::daemon(char *argv0)
         daemon_pid_file_ident = daemon_log_ident = daemon_ident_from_argv0(argv0);
 
         pid = daemon_pid_file_is_running();
-
 }
 
-daemon::ctx& daemon::daemonize()
+daemon::ctx& daemon::daemonize(bool background)
 {
+    if (!background) {
+        int res = setup_signals();
+        if (res < 0) {
+            ::exit(-3);
+        }
+        return get_context();
+    }
+
+    //we are going underground!
     if (daemon_retval_init()) {
         std::string err_msg = "Failed to create pipe";
         daemon_log(LOG_ERR, err_msg.c_str());
@@ -163,8 +171,7 @@ daemon::ctx& daemon::daemonize()
             exit();
         }
 
-        if (daemon_signal_init(SIGINT, SIGTERM, SIGQUIT, SIGHUP, 0) < 0) {
-            daemon_log(LOG_ERR, "Could not register signal handlers (%s).", strerror(errno));
+        if (setup_signals() < 0) {
             daemon_retval_send(3);
             exit();
         }
@@ -172,8 +179,7 @@ daemon::ctx& daemon::daemonize()
         /* Send OK to parent process */
         daemon_retval_send(0);
 
-        context = std::unique_ptr<ctx>(new ctx(daemon_signal_fd()));
-        return *context;
+        return get_context();
     }
 }
 
@@ -207,6 +213,23 @@ void daemon::exit()
     daemon_signal_done();
     daemon_pid_file_remove();
     ::exit(255);
+}
+
+
+daemon::ctx &daemon::get_context()
+{
+    if (!context) {
+        context = std::unique_ptr<ctx>(new ctx(daemon_signal_fd()));
+    }
+    return *context;
+}
+
+int daemon::setup_signals()
+{
+    int res = daemon_signal_init(SIGINT, SIGTERM, SIGQUIT, SIGHUP, 0);
+    if (res < 0) {
+        daemon_log(LOG_ERR, "Could not register signal handlers (%s).", strerror(errno));
+    }
 }
 
 }

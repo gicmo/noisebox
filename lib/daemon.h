@@ -46,7 +46,7 @@ public:
         return pid >= 0;
     }
 
-    ctx& daemonize();
+    ctx& daemonize(bool background = true);
 
     void exit();
 
@@ -80,6 +80,10 @@ public:
         zmq::context_t zmq_ctx;
         signal_radio   signal_station;
     };
+
+private:
+    ctx &get_context();
+    int setup_signals();
 
 private:
     pid_t pid;
