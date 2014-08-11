@@ -66,10 +66,8 @@
                     </div>
             </div>
             <div class="col-md-1">
-                <i data-bind="css: { 'animate-spin': updating,
-                                     'icon-spin5': update_type() == 'sse',
-                                     'icon-spin3': update_type() == 'poll' }"
-                   class="color-gray"></i>
+                <i data-bind="css: { 'animate-spin': updating }"
+                   class="color-gray icon-spin5"></i>
             </div>
         </div>
     </div>
@@ -86,7 +84,7 @@
         self.sse_support = ko.observable(typeof(EventSource) !== "undefined");
         self.event_source = null;
 
-        self.update_type = ko.computed(function(){
+        self.update_type = ko.computed(function () {
             return self.sse_support() ? 'sse' : 'poll';
         });
 
@@ -95,63 +93,65 @@
 
         self.spinner = make_loader({width: 640, height: 150, container: "#graph-current", id: "loader"});
 
+        self.ws_uri = "ws://noisebox.neuro.bzm/api/live";
+
         //based on code from http://bl.ocks.org/Mattwoelk/6132258
-            function make_loader(config) {
-                return { start: function () {
-                    var radius = Math.min(config.width, config.height) / 2;
-                    var tau = 2 * Math.PI;
+        function make_loader(config) {
+            return { start: function () {
+                var radius = Math.min(config.width, config.height) / 2;
+                var tau = 2 * Math.PI;
 
-                    var arc = d3.svg.arc()
-                            .innerRadius(radius * 0.6)
-                            .outerRadius(radius * 0.9)
-                            .startAngle(0);
+                var arc = d3.svg.arc()
+                        .innerRadius(radius * 0.6)
+                        .outerRadius(radius * 0.9)
+                        .startAngle(0);
 
-                    var svg = d3.select(config.container).append("svg")
-                            .attr("id", config.id)
-                            .attr("width", config.width)
-                            .attr("height", config.height)
-                            .append("g")
-                            .attr("transform", "translate(" + config.width / 2 + "," + config.height / 2 + ")");
+                var svg = d3.select(config.container).append("svg")
+                        .attr("id", config.id)
+                        .attr("width", config.width)
+                        .attr("height", config.height)
+                        .append("g")
+                        .attr("transform", "translate(" + config.width / 2 + "," + config.height / 2 + ")");
 
-                    var background = svg.append("path")
-                            .datum({endAngle: 0.33 * tau})
-                            .style("fill", "#4D4D4D")
-                            .attr("d", arc)
-                            .call(spin, 1500);
+                var background = svg.append("path")
+                        .datum({endAngle: 0.33 * tau})
+                        .style("fill", "#4D4D4D")
+                        .attr("d", arc)
+                        .call(spin, 1500);
 
-                    function spin(selection, duration) {
-                        selection.transition()
-                                .ease("linear")
-                                .duration(duration)
-                                .attrTween("transform", function () {
-                                    return d3.interpolateString("rotate(0)", "rotate(360)");
-                                });
+                function spin(selection, duration) {
+                    selection.transition()
+                            .ease("linear")
+                            .duration(duration)
+                            .attrTween("transform", function () {
+                                return d3.interpolateString("rotate(0)", "rotate(360)");
+                            });
 
-                        setTimeout(function () {
-                            spin(selection, duration);
-                        }, duration);
-                    }
+                    setTimeout(function () {
+                        spin(selection, duration);
+                    }, duration);
+                }
 
-                    function transitionFunction(path) {
-                        path.transition()
-                                .duration(7500)
-                                .attrTween("stroke-dasharray", tweenDash)
-                                .each("end", function () {
-                                    d3.select(this).call(transition);
-                                });
-                    }
+                function transitionFunction(path) {
+                    path.transition()
+                            .duration(7500)
+                            .attrTween("stroke-dasharray", tweenDash)
+                            .each("end", function () {
+                                d3.select(this).call(transition);
+                            });
+                }
 
-                },
-                stop: function() {
-                        d3.select("#" + config.id).remove();
-                    }
-            }}
+            },
+                stop: function () {
+                    d3.select("#" + config.id).remove();
+                }
+            }
+        }
 
-        self.load_data = function() {
+        self.load_data = function () {
             self.updating(true);
             self.spinner.start();
-            var jqxhr = $.getJSON("api/data", function(data) {
-                self.updating(false);
+            var jqxhr = $.getJSON("api/data", function (data) {
                 self.spinner.stop();
                 self.make_graph(640, 150);
 
@@ -159,34 +159,23 @@
                     return;
                 }
 
-                var x = data.data.map(function(o){ o.timestamp = new Date(o.timestamp * 1000); return o;});
-                self.data = x; 
+                var x = data.data.map(function (o) {
+                    o.timestamp = new Date(o.timestamp * 1000);
+                    return o;
+                });
+                self.data = x;
                 self.graph.update();
             });
 
-            jqxhr.fail(function(jqxhr, textStatus, error) {
+            jqxhr.fail(function (jqxhr, textStatus, error) {
                 var err = textStatus + ", " + error;
                 self.last_update("Request is failing! [" + err + "]");
-                self.install_timer();
             });
         };
 
-        self.install_timer = function() {
+        self.update_from_data = function (data) {
 
-            if (self.sse_support()) {
-                // we use see, no need for polling!
-                return;
-            }
-
-            console.log('Installing timer');
-            setTimeout(function() {
-                self.load_data();
-            }, 2000);
-        };
-
-        self.update_from_data = function(data) {
-
-            if(!data) {
+            if (!data) {
                 console.log('Got invalid update data');
                 return;
             }
@@ -213,8 +202,8 @@
                 var now = new Date();
                 self.last_update(now.toDateString() + " @ " + now.toTimeString());
                 self.data.push({timestamp: now,
-                                temp: parseFloat(self.temperature()),
-                                humidity: parseFloat(self.humidity())});
+                    temp: parseFloat(self.temperature()),
+                    humidity: parseFloat(self.humidity())});
 
                 self.graph.update();
 
@@ -223,29 +212,32 @@
                 }
             }
 
-            self.install_timer();
         };
 
-        self.initialize = function() {
+        self.initialize = function () {
             self.load_data();
 
-            if (self.sse_support()) {
+            var ws = new WebSocket(self.ws_uri);
 
-                self.event_source = new EventSource("api/subscribe");
-                self.event_source.onmessage = function(e) {
-                    if (!self.updating()) {
-                        self.updating('sse');
-                    }
-                    var data = JSON.parse(e.data);
-                    self.update_from_data(data);
-                };
+            ws.onopen = function(event) {
+                self.updating(true);
+            };
 
-                self.event_source.onerror = function() {
-                    self.updating(false);
-                    console.log('Event source error');
-                };
-            }
+            ws.onclose = function(event) {
+                self.updating(false);
+            };
 
+            ws.onmessage = function(event) {
+                self.update_from_data(JSON.parse(event.data));
+                ws.send('ack');
+            };
+
+            ws.onerror = function(event) {
+                console.log('ws error', event);
+                self.updating(false);
+            };
+
+            self.ws_live = ws;
 
         };
 
