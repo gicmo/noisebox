@@ -10,7 +10,7 @@ context = zmq.Context()
 app = Flask(__name__)
 
 
-@app.route('/data')
+@app.route('/api/data')
 def data():
     ipc = context.socket(zmq.REQ)
     ipc.connect("tcp://localhost:5557")
@@ -22,7 +22,7 @@ def data():
     return jsonify(js_data)
 
 
-@app.route('/subscribe')
+@app.route('/api/subscribe')
 def subscribe():
     zmq_ctx = context
     updates = zmq_ctx.socket(zmq.SUB)
