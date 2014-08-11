@@ -159,11 +159,8 @@
                     return;
                 }
 
-                var x = data.data.map(function(o){ o.timestamp = new Date(o.timestamp * 1000); console.log(o); return o;});
-                console.log(x);
-
-                self.data = x; //data.data.map(function(o){o.timestamp = new Date(o.timestamp * 1000); return o; });
-
+                var x = data.data.map(function(o){ o.timestamp = new Date(o.timestamp * 1000); return o;});
+                self.data = x; 
                 self.graph.update();
             });
 
