@@ -97,7 +97,8 @@
 	
         function make_ws_uri() {
             var loc = window.location;
-            return "ws://" + loc.hostname + "/api/live"         
+            var port = loc.port;
+            return "ws://" + loc.hostname + ":" + port + "/api/live"         
         }	
 
         //based on code from http://bl.ocks.org/Mattwoelk/6132258
