@@ -93,7 +93,12 @@
 
         self.spinner = make_loader({width: 640, height: 150, container: "#graph-current", id: "loader"});
 
-        self.ws_uri = "ws://noisebox.neuro.bzm/api/live";
+        self.ws_uri = make_ws_uri(); 
+	
+        function make_ws_uri() {
+            var loc = window.location;
+            return "ws://" + loc.hostname + "/api/live"         
+        }	
 
         //based on code from http://bl.ocks.org/Mattwoelk/6132258
         function make_loader(config) {
