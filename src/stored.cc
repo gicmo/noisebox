@@ -440,78 +440,87 @@ int main(int argc, char **argv)
             {static_cast<void *>(frontend), 0, ZMQ_POLLIN, 0}
     };
 
-    while (true) {
+    try {
 
-        size_t n_workers = workers.size();
-        int n_items = 3;
-        if (n_workers <  1) {
-            n_items = 2;
-            //manually clear revents in this case
-            items[2].revents = 0;
-        }
-        int res = zmq_poll (items, n_items, -1);
-        if (res < 1) {
-            if (errno == EINTR) {
-                continue;
+        while (true) {
+
+            size_t n_workers = workers.size();
+            int n_items = 3;
+            if (n_workers < 1) {
+                n_items = 2;
+                //manually clear revents in this case
+                items[2].revents = 0;
             }
-            break;
-        }
+            int res = zmq_poll(items, n_items, -1);
+            if (res < 1) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                break;
+            }
 
-        if (items[0].revents & ZMQ_POLLIN) {
-            //hangman/signal socket
-            break;
-        }
+            if (items[0].revents & ZMQ_POLLIN) {
+                //hangman/signal socket
+                daemon.info("Got shutdown signal");
+                break;
+            }
 
-        if (items[1].revents & ZMQ_POLLIN) {
-            std::string w_address = util::receive_string(backend);
-            util::receive_empty(backend, true);
-            std::string c_address = util::receive_string(backend);
-
-            workers.push_back(w_address);
-
-            if (c_address != "HELLO") {
-
+            if (items[1].revents & ZMQ_POLLIN) {
+                std::string w_address = util::receive_string(backend);
                 util::receive_empty(backend, true);
-                zmq::message_t data_in;
-                backend.recv(&data_in);
+                std::string c_address = util::receive_string(backend);
 
-                util::send_string(frontend, c_address, true);
-                util::send_empty(frontend, true);
+                workers.push_back(w_address);
+
+                if (c_address != "HELLO") {
+
+                    util::receive_empty(backend, true);
+                    zmq::message_t data_in;
+                    backend.recv(&data_in);
+
+                    util::send_string(frontend, c_address, true);
+                    util::send_empty(frontend, true);
+
+                    zmq::message_t data_out;
+                    data_out.copy(&data_in);
+                    frontend.send(data_out);
+
+                }
+            }
+
+            if (items[2].revents & ZMQ_POLLIN) {
+                std::string c_address = util::receive_string(frontend);
+                util::receive_empty(frontend, true);
+                zmq::message_t data_in;
+                frontend.recv(&data_in);
+
+                std::string w_address = workers.front();
+                workers.pop_front();
+
+                util::send_string(backend, w_address, true);
+                util::send_empty(backend, true);
+                util::send_string(backend, c_address, true);
+                util::send_empty(backend, true);
 
                 zmq::message_t data_out;
                 data_out.copy(&data_in);
-                frontend.send(data_out);
-
+                backend.send(data_out);
             }
+
         }
 
-        if (items[2].revents & ZMQ_POLLIN) {
-            std::string c_address = util::receive_string(frontend);
-            util::receive_empty(frontend, true);
-            zmq::message_t data_in;
-            frontend.recv(&data_in);
+        cache_thread.join();
+        db_thread.join();
 
-            std::string w_address = workers.front();
-            workers.pop_front();
-
-            util::send_string(backend, w_address, true);
-            util::send_empty(backend, true);
-            util::send_string(backend, c_address, true);
-            util::send_empty(backend, true);
-
-            zmq::message_t data_out;
-            data_out.copy(&data_in);
-            backend.send(data_out);
+        for (auto &wth : worker_threads) {
+            wth.join();
         }
-
+    } catch (std::exception &e) {
+          daemon.err("caught exception: %s", e.what());
+    } catch (...) {
+        daemon.err("caught unhandled exception!");
     }
 
-    cache_thread.join();
-    db_thread.join();
-
-    for(auto &wth : worker_threads) {
-        wth.join();
-    }
-
+    daemon.info("exiting!");
     return 0;
 }
